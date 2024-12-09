@@ -9,14 +9,15 @@ use deko::Format;
 use flate2::read::ZlibDecoder;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
-pub enum XarCompression {
+pub enum Compression {
     None,
     #[default]
     Gzip,
     Bzip2,
+    // TODO lzfse
 }
 
-impl XarCompression {
+impl Compression {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::None => OCTET_STREAM_MIME_TYPE,
@@ -42,7 +43,7 @@ impl XarCompression {
     }
 }
 
-impl From<&str> for XarCompression {
+impl From<&str> for Compression {
     fn from(s: &str) -> Self {
         match s {
             GZIP_MIME_TYPE => Self::Gzip,

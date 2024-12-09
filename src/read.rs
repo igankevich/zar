@@ -20,18 +20,16 @@ use std::time::UNIX_EPOCH;
 use chrono::format::SecondsFormat;
 use chrono::DateTime;
 use chrono::Utc;
-use digest::Digest;
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use serde::ser::SerializeStruct;
 use serde::Deserialize;
 use serde::Serialize;
 use serde::Serializer;
-use sha1::Sha1;
-use sha2::Sha256;
-use sha2::Sha512;
 
-use crate::XarCompression;
+use crate::Checksum;
+use crate::ChecksumAlgorithm;
+use crate::Compression;
 use crate::XarDecoder;
 
 pub struct XarArchive<R: Read + Seek> {
@@ -118,7 +116,7 @@ impl<W: Write> XarBuilder<W> {
         &mut self,
         archive_path: PathBuf,
         path: P,
-        compression: XarCompression,
+        compression: Compression,
     ) -> Result<(), Error> {
         let path = path.as_ref();
         let metadata = path.metadata()?;
@@ -136,7 +134,7 @@ impl<W: Write> XarBuilder<W> {
         &mut self,
         status: FileStatus,
         contents: C,
-        compression: XarCompression,
+        compression: Compression,
     ) -> Result<(), Error> {
         let contents = contents.as_ref();
         let extracted_checksum = Checksum::new_from_data(self.checksum_algo, contents);
@@ -247,7 +245,7 @@ impl<'a, R: Read + Seek> Entry<'a, R> {
         self.archive.seek_to_file(self.i)?;
         // we need decoder based on compression, otherwise we can accidentally decompress the
         // file with octet-stream compression
-        let compression: XarCompression = self.archive.files[self.i]
+        let compression: Compression = self.archive.files[self.i]
             .data
             .encoding
             .style
@@ -367,149 +365,6 @@ impl Header {
         writer.write_all(&self.toc_len_uncompressed.to_be_bytes()[..])?;
         writer.write_all(&(self.checksum_algo as u32).to_be_bytes()[..])?;
         Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[cfg_attr(test, derive(arbitrary::Arbitrary, PartialEq, Eq))]
-#[serde(rename_all = "lowercase")]
-#[repr(u32)]
-pub enum ChecksumAlgorithm {
-    Sha1 = 1,
-    Sha256 = 3,
-    Sha512 = 4,
-}
-
-impl ChecksumAlgorithm {
-    pub fn size(self) -> usize {
-        use ChecksumAlgorithm::*;
-        match self {
-            Sha1 => 20,
-            Sha256 => 32,
-            Sha512 => 64,
-        }
-    }
-}
-
-impl TryFrom<u32> for ChecksumAlgorithm {
-    type Error = Error;
-    fn try_from(other: u32) -> Result<Self, Self::Error> {
-        match other {
-            0 => Err(Error::other("no hashing algorithm")),
-            1 => Ok(Self::Sha1),
-            2 => Err(Error::other("unsafe md5 hashing algorithm")),
-            3 => Ok(Self::Sha256),
-            4 => Ok(Self::Sha512),
-            other => Err(Error::other(format!("unknown hashing algorithm {}", other))),
-        }
-    }
-}
-
-const SHA1_LEN: usize = 20;
-const SHA256_LEN: usize = 32;
-const SHA512_LEN: usize = 64;
-const SHA1_HEX_LEN: usize = 2 * SHA1_LEN;
-const SHA256_HEX_LEN: usize = 2 * SHA256_LEN;
-const SHA512_HEX_LEN: usize = 2 * SHA512_LEN;
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(test, derive(arbitrary::Arbitrary))]
-#[serde(into = "String", try_from = "String")]
-pub enum Checksum {
-    Sha1([u8; SHA1_LEN]),
-    Sha256([u8; SHA256_LEN]),
-    Sha512([u8; SHA512_LEN]),
-}
-
-impl Checksum {
-    pub fn new(algo: ChecksumAlgorithm, data: &[u8]) -> Result<Self, Error> {
-        use ChecksumAlgorithm::*;
-        Ok(match algo {
-            Sha1 => Self::Sha1(
-                data.try_into()
-                    .map_err(|_| Error::other("invalid sha1 length"))?,
-            ),
-            Sha256 => Self::Sha256(
-                data.try_into()
-                    .map_err(|_| Error::other("invalid sha256 length"))?,
-            ),
-            Sha512 => Self::Sha512(
-                data.try_into()
-                    .map_err(|_| Error::other("invalid sha512 length"))?,
-            ),
-        })
-    }
-
-    pub fn new_from_data(algo: ChecksumAlgorithm, data: &[u8]) -> Self {
-        match algo {
-            ChecksumAlgorithm::Sha1 => Self::Sha1(Sha1::digest(data).into()),
-            ChecksumAlgorithm::Sha256 => Self::Sha256(Sha256::digest(data).into()),
-            ChecksumAlgorithm::Sha512 => Self::Sha512(Sha512::digest(data).into()),
-        }
-    }
-
-    pub fn compute(&self, data: &[u8]) -> Self {
-        match self {
-            Self::Sha1(..) => Self::Sha1(Sha1::digest(data).into()),
-            Self::Sha256(..) => Self::Sha256(Sha256::digest(data).into()),
-            Self::Sha512(..) => Self::Sha512(Sha512::digest(data).into()),
-        }
-    }
-
-    pub fn algo(&self) -> ChecksumAlgorithm {
-        match self {
-            Self::Sha1(..) => ChecksumAlgorithm::Sha1,
-            Self::Sha256(..) => ChecksumAlgorithm::Sha256,
-            Self::Sha512(..) => ChecksumAlgorithm::Sha512,
-        }
-    }
-}
-
-impl TryFrom<String> for Checksum {
-    type Error = Error;
-    fn try_from(other: String) -> Result<Self, Self::Error> {
-        use base16ct::mixed::decode;
-        let other = other.trim();
-        match other.len() {
-            SHA1_HEX_LEN => {
-                let mut bytes = [0_u8; SHA1_LEN];
-                decode(other, &mut bytes[..]).map_err(|_| Error::other("invalid sha1 string"))?;
-                Ok(Self::Sha1(bytes))
-            }
-            SHA256_HEX_LEN => {
-                let mut bytes = [0_u8; SHA256_LEN];
-                decode(other, &mut bytes[..]).map_err(|_| Error::other("invalid sha256 string"))?;
-                Ok(Self::Sha256(bytes))
-            }
-            SHA512_HEX_LEN => {
-                let mut bytes = [0_u8; SHA512_LEN];
-                decode(other, &mut bytes[..]).map_err(|_| Error::other("invalid sha512 string"))?;
-                Ok(Self::Sha512(bytes))
-            }
-            _ => Err(Error::other("invalid hash length")),
-        }
-    }
-}
-
-impl From<Checksum> for String {
-    fn from(other: Checksum) -> String {
-        use base16ct::lower::encode_string;
-        use Checksum::*;
-        match other {
-            Sha1(hash) => encode_string(&hash),
-            Sha256(hash) => encode_string(&hash),
-            Sha512(hash) => encode_string(&hash),
-        }
-    }
-}
-
-impl AsRef<[u8]> for Checksum {
-    fn as_ref(&self) -> &[u8] {
-        match self {
-            Self::Sha1(h) => h.as_ref(),
-            Self::Sha256(h) => h.as_ref(),
-            Self::Sha512(h) => h.as_ref(),
-        }
     }
 }
 
@@ -972,7 +827,7 @@ mod tests {
                 if entry_path == Path::new("") {
                     continue;
                 }
-                xar.add_file_by_path(entry_path, entry.path(), XarCompression::Gzip)
+                xar.add_file_by_path(entry_path, entry.path(), Compression::Gzip)
                     .unwrap();
             }
             let expected_files = xar.files().to_vec();
