@@ -1,6 +1,4 @@
 use std::fmt::Display;
-use std::ops::Deref;
-use std::ops::DerefMut;
 use std::fmt::Formatter;
 use std::fs::FileType;
 use std::fs::Metadata;
@@ -10,6 +8,8 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
 use std::iter::FusedIterator;
+use std::ops::Deref;
+use std::ops::DerefMut;
 use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -17,25 +17,22 @@ use std::time::Duration;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
-use bzip2::read::BzDecoder;
-use bzip2::write::BzEncoder;
 use chrono::format::SecondsFormat;
 use chrono::DateTime;
 use chrono::Utc;
+use digest::Digest;
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use serde::ser::SerializeStruct;
 use serde::Deserialize;
 use serde::Serialize;
 use serde::Serializer;
+use sha1::Sha1;
+use sha2::Sha256;
+use sha2::Sha512;
 
-use crate::hash::Hasher;
-use crate::hash::Sha1;
-use crate::hash::Sha1Hash;
-use crate::hash::Sha256;
-use crate::hash::Sha256Hash;
-use crate::hash::Sha512;
-use crate::hash::Sha512Hash;
+use crate::XarCompression;
+use crate::XarDecoder;
 
 pub struct XarArchive<R: Read + Seek> {
     files: Vec<xml::File>,
@@ -143,7 +140,7 @@ impl<W: Write> XarBuilder<W> {
     ) -> Result<(), Error> {
         let contents = contents.as_ref();
         let extracted_checksum = Checksum::new_from_data(self.checksum_algo, contents);
-        let mut encoder = compression.encoder(Vec::new());
+        let mut encoder = compression.encoder(Vec::new())?;
         encoder.write_all(contents)?;
         let archived = encoder.finish()?;
         let archived_checksum = Checksum::new_from_data(self.checksum_algo, &archived);
@@ -408,13 +405,20 @@ impl TryFrom<u32> for ChecksumAlgorithm {
     }
 }
 
+const SHA1_LEN: usize = 20;
+const SHA256_LEN: usize = 32;
+const SHA512_LEN: usize = 64;
+const SHA1_HEX_LEN: usize = 2 * SHA1_LEN;
+const SHA256_HEX_LEN: usize = 2 * SHA256_LEN;
+const SHA512_HEX_LEN: usize = 2 * SHA512_LEN;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(test, derive(arbitrary::Arbitrary))]
 #[serde(into = "String", try_from = "String")]
 pub enum Checksum {
-    Sha1(Sha1Hash),
-    Sha256(Sha256Hash),
-    Sha512(Sha512Hash),
+    Sha1([u8; SHA1_LEN]),
+    Sha256([u8; SHA256_LEN]),
+    Sha512([u8; SHA512_LEN]),
 }
 
 impl Checksum {
@@ -438,17 +442,17 @@ impl Checksum {
 
     pub fn new_from_data(algo: ChecksumAlgorithm, data: &[u8]) -> Self {
         match algo {
-            ChecksumAlgorithm::Sha1 => Self::Sha1(Sha1::compute(data)),
-            ChecksumAlgorithm::Sha256 => Self::Sha256(Sha256::compute(data)),
-            ChecksumAlgorithm::Sha512 => Self::Sha512(Sha512::compute(data)),
+            ChecksumAlgorithm::Sha1 => Self::Sha1(Sha1::digest(data).into()),
+            ChecksumAlgorithm::Sha256 => Self::Sha256(Sha256::digest(data).into()),
+            ChecksumAlgorithm::Sha512 => Self::Sha512(Sha512::digest(data).into()),
         }
     }
 
     pub fn compute(&self, data: &[u8]) -> Self {
         match self {
-            Self::Sha1(..) => Self::Sha1(Sha1::compute(data)),
-            Self::Sha256(..) => Self::Sha256(Sha256::compute(data)),
-            Self::Sha512(..) => Self::Sha512(Sha512::compute(data)),
+            Self::Sha1(..) => Self::Sha1(Sha1::digest(data).into()),
+            Self::Sha256(..) => Self::Sha256(Sha256::digest(data).into()),
+            Self::Sha512(..) => Self::Sha512(Sha512::digest(data).into()),
         }
     }
 
@@ -464,23 +468,24 @@ impl Checksum {
 impl TryFrom<String> for Checksum {
     type Error = Error;
     fn try_from(other: String) -> Result<Self, Self::Error> {
+        use base16ct::mixed::decode;
         let other = other.trim();
         match other.len() {
-            Sha1Hash::HEX_LEN => Ok(Self::Sha1(
-                other
-                    .parse()
-                    .map_err(|_| Error::other("invalid sha1 string"))?,
-            )),
-            Sha256Hash::HEX_LEN => Ok(Self::Sha256(
-                other
-                    .parse()
-                    .map_err(|_| Error::other("invalid sha256 string"))?,
-            )),
-            Sha512Hash::HEX_LEN => Ok(Self::Sha512(
-                other
-                    .parse()
-                    .map_err(|_| Error::other("invalid sha512 string"))?,
-            )),
+            SHA1_HEX_LEN => {
+                let mut bytes = [0_u8; SHA1_LEN];
+                decode(other, &mut bytes[..]).map_err(|_| Error::other("invalid sha1 string"))?;
+                Ok(Self::Sha1(bytes))
+            }
+            SHA256_HEX_LEN => {
+                let mut bytes = [0_u8; SHA256_LEN];
+                decode(other, &mut bytes[..]).map_err(|_| Error::other("invalid sha256 string"))?;
+                Ok(Self::Sha256(bytes))
+            }
+            SHA512_HEX_LEN => {
+                let mut bytes = [0_u8; SHA512_LEN];
+                decode(other, &mut bytes[..]).map_err(|_| Error::other("invalid sha512 string"))?;
+                Ok(Self::Sha512(bytes))
+            }
             _ => Err(Error::other("invalid hash length")),
         }
     }
@@ -488,11 +493,12 @@ impl TryFrom<String> for Checksum {
 
 impl From<Checksum> for String {
     fn from(other: Checksum) -> String {
+        use base16ct::lower::encode_string;
         use Checksum::*;
         match other {
-            Sha1(hash) => hash.to_string(),
-            Sha256(hash) => hash.to_string(),
-            Sha512(hash) => hash.to_string(),
+            Sha1(hash) => encode_string(&hash),
+            Sha256(hash) => encode_string(&hash),
+            Sha512(hash) => encode_string(&hash),
         }
     }
 }
@@ -636,100 +642,6 @@ impl From<FileType> for FileKind {
             Self::File
         } else {
             Default::default()
-        }
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
-pub enum XarCompression {
-    None,
-    #[default]
-    Gzip,
-    Bzip2,
-}
-
-impl XarCompression {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::None => "application/octet-stream",
-            Self::Gzip => "application/x-gzip",
-            Self::Bzip2 => "application/x-bzip2",
-        }
-    }
-
-    fn encoder<W: Write>(self, writer: W) -> XarEncoder<W> {
-        match self {
-            Self::None => XarEncoder::OctetStream(writer),
-            Self::Gzip => XarEncoder::Gzip(ZlibEncoder::new(writer, flate2::Compression::best())),
-            Self::Bzip2 => XarEncoder::Bzip2(BzEncoder::new(writer, bzip2::Compression::best())),
-        }
-    }
-
-    fn decoder<R: Read>(self, reader: R) -> XarDecoder<R> {
-        match self {
-            Self::None => XarDecoder::OctetStream(reader),
-            Self::Gzip => XarDecoder::Gzip(ZlibDecoder::new(reader)),
-            Self::Bzip2 => XarDecoder::Bzip2(BzDecoder::new(reader)),
-        }
-    }
-}
-
-impl From<&str> for XarCompression {
-    fn from(s: &str) -> Self {
-        match s {
-            "application/x-gzip" => Self::Gzip,
-            "application/x-bzip2" => Self::Bzip2,
-            _ => Self::None,
-        }
-    }
-}
-
-enum XarEncoder<W: Write> {
-    OctetStream(W),
-    Gzip(ZlibEncoder<W>),
-    Bzip2(BzEncoder<W>),
-}
-
-impl<W: Write> XarEncoder<W> {
-    fn finish(self) -> Result<W, Error> {
-        match self {
-            Self::OctetStream(w) => Ok(w),
-            Self::Gzip(w) => w.finish(),
-            Self::Bzip2(w) => w.finish(),
-        }
-    }
-}
-
-impl<W: Write> Write for XarEncoder<W> {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
-        match self {
-            Self::OctetStream(w) => w.write(buf),
-            Self::Gzip(w) => w.write(buf),
-            Self::Bzip2(w) => w.write(buf),
-        }
-    }
-
-    fn flush(&mut self) -> Result<(), Error> {
-        match self {
-            Self::OctetStream(w) => w.flush(),
-            Self::Gzip(w) => w.flush(),
-            Self::Bzip2(w) => w.flush(),
-        }
-    }
-}
-
-pub enum XarDecoder<R: Read> {
-    OctetStream(R),
-    Gzip(ZlibDecoder<R>),
-    Bzip2(BzDecoder<R>),
-}
-
-impl<R: Read> Read for XarDecoder<R> {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
-        match self {
-            Self::OctetStream(r) => r.read(buf),
-            Self::Gzip(r) => r.read(buf),
-            Self::Bzip2(r) => r.read(buf),
         }
     }
 }
