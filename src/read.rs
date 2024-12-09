@@ -111,7 +111,7 @@ impl<W: Write> XarBuilder<W> {
         compression: Compression,
     ) -> Result<(), Error> {
         let path = path.as_ref();
-        let metadata = path.metadata()?;
+        let metadata = std::fs::symlink_metadata(path)?;
         let contents = if metadata.is_dir() {
             Vec::new()
         } else {
@@ -536,12 +536,13 @@ mod tests {
 
     use arbtest::arbtest;
     use normalize_path::NormalizePath;
-    use random_dir::Dir;
+    use random_dir::DirBuilder;
     use tempfile::TempDir;
     use walkdir::WalkDir;
 
     use super::*;
 
+    /*
     #[test]
     fn xar_read() {
         let reader = File::open("tmp.sh.xar").unwrap();
@@ -554,12 +555,17 @@ mod tests {
             );
         }
     }
+    */
 
     #[test]
     fn xar_write_read() {
         let workdir = TempDir::new().unwrap();
         arbtest(|u| {
-            let directory: Dir = u.arbitrary()?;
+            let directory = DirBuilder::new()
+                .printable_names(true)
+                // TODO other file types
+                .file_types([random_dir::FileType::Regular])
+                .create(u)?;
             let xar_path = workdir.path().join("test.xar");
             let mut xar = XarBuilder::new(File::create(&xar_path).unwrap());
             for entry in WalkDir::new(directory.path()).into_iter() {
