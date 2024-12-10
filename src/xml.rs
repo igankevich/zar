@@ -20,12 +20,12 @@ use serde::Serialize;
 use serde::Serializer;
 
 use crate::Checksum;
-use crate::ChecksumAlgorithm;
-use crate::FileKind;
+use crate::ChecksumAlgo;
+use crate::FileType;
 use crate::FileMode;
 use crate::FileStatus;
 use crate::Header;
-use crate::XarSigner;
+use crate::Signer;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename = "xar")]
@@ -40,10 +40,10 @@ impl Xar {
         from_reader(reader).map_err(Error::other)
     }
 
-    pub fn write<W: Write, S: XarSigner>(
+    pub fn write<W: Write, S: Signer>(
         &self,
         mut writer: W,
-        checksum_algo: ChecksumAlgorithm,
+        checksum_algo: ChecksumAlgo,
         signer: Option<&S>,
     ) -> Result<(), Error> {
         let mut toc_uncompressed = String::new();
@@ -91,7 +91,7 @@ pub struct Toc {
 #[serde(rename = "checksum")]
 pub struct TocChecksum {
     #[serde(rename = "@style")]
-    pub algo: ChecksumAlgorithm,
+    pub algo: ChecksumAlgo,
     pub offset: u64,
     pub size: u64,
 }
@@ -104,7 +104,7 @@ pub struct File {
     pub id: u64,
     pub name: PathBuf,
     #[serde(rename = "type", default)]
-    pub kind: FileKind,
+    pub kind: FileType,
     #[serde(default)]
     pub inode: u64,
     #[serde(default)]
@@ -169,7 +169,7 @@ pub struct Encoding {
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct FileChecksum {
     #[serde(rename = "@style")]
-    pub algo: ChecksumAlgorithm,
+    pub algo: ChecksumAlgo,
     #[serde(rename = "$value")]
     pub value: Checksum,
 }

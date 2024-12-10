@@ -18,8 +18,8 @@ pub enum Checksum {
 }
 
 impl Checksum {
-    pub fn new(algo: ChecksumAlgorithm, data: &[u8]) -> Result<Self, Error> {
-        use ChecksumAlgorithm::*;
+    pub fn new(algo: ChecksumAlgo, data: &[u8]) -> Result<Self, Error> {
+        use ChecksumAlgo::*;
         Ok(match algo {
             Md5 => Self::Md5(
                 data.try_into()
@@ -40,12 +40,12 @@ impl Checksum {
         })
     }
 
-    pub fn new_from_data(algo: ChecksumAlgorithm, data: &[u8]) -> Self {
+    pub fn new_from_data(algo: ChecksumAlgo, data: &[u8]) -> Self {
         match algo {
-            ChecksumAlgorithm::Md5 => Self::Md5(md5::compute(data).into()),
-            ChecksumAlgorithm::Sha1 => Self::Sha1(Sha1::digest(data).into()),
-            ChecksumAlgorithm::Sha256 => Self::Sha256(Sha256::digest(data).into()),
-            ChecksumAlgorithm::Sha512 => Self::Sha512(Sha512::digest(data).into()),
+            ChecksumAlgo::Md5 => Self::Md5(md5::compute(data).into()),
+            ChecksumAlgo::Sha1 => Self::Sha1(Sha1::digest(data).into()),
+            ChecksumAlgo::Sha256 => Self::Sha256(Sha256::digest(data).into()),
+            ChecksumAlgo::Sha512 => Self::Sha512(Sha512::digest(data).into()),
         }
     }
 
@@ -58,12 +58,12 @@ impl Checksum {
         }
     }
 
-    pub fn algo(&self) -> ChecksumAlgorithm {
+    pub fn algo(&self) -> ChecksumAlgo {
         match self {
-            Self::Md5(..) => ChecksumAlgorithm::Md5,
-            Self::Sha1(..) => ChecksumAlgorithm::Sha1,
-            Self::Sha256(..) => ChecksumAlgorithm::Sha256,
-            Self::Sha512(..) => ChecksumAlgorithm::Sha512,
+            Self::Md5(..) => ChecksumAlgo::Md5,
+            Self::Sha1(..) => ChecksumAlgo::Sha1,
+            Self::Sha256(..) => ChecksumAlgo::Sha256,
+            Self::Sha512(..) => ChecksumAlgo::Sha512,
         }
     }
 }
@@ -127,16 +127,16 @@ impl AsRef<[u8]> for Checksum {
 #[cfg_attr(test, derive(arbitrary::Arbitrary, PartialEq, Eq))]
 #[serde(rename_all = "lowercase")]
 #[repr(u32)]
-pub enum ChecksumAlgorithm {
+pub enum ChecksumAlgo {
     Sha1 = 1,
     Md5 = 2,
     Sha256 = 3,
     Sha512 = 4,
 }
 
-impl ChecksumAlgorithm {
+impl ChecksumAlgo {
     pub fn size(self) -> usize {
-        use ChecksumAlgorithm::*;
+        use ChecksumAlgo::*;
         match self {
             Md5 => MD5_LEN,
             Sha1 => SHA1_LEN,
@@ -146,7 +146,7 @@ impl ChecksumAlgorithm {
     }
 }
 
-impl TryFrom<u32> for ChecksumAlgorithm {
+impl TryFrom<u32> for ChecksumAlgo {
     type Error = Error;
     fn try_from(other: u32) -> Result<Self, Self::Error> {
         match other {
