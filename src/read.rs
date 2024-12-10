@@ -1,5 +1,6 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::fs::symlink_metadata;
 use std::fs::FileType;
 use std::fs::Metadata;
 use std::io::Error;
@@ -111,11 +112,20 @@ impl<W: Write> XarBuilder<W> {
         compression: Compression,
     ) -> Result<(), Error> {
         let path = path.as_ref();
-        let metadata = std::fs::symlink_metadata(path)?;
-        let contents = if metadata.is_dir() {
-            Vec::new()
+        let metadata = symlink_metadata(path)?;
+        let has_contents = if metadata.is_file() {
+            true
+        } else if metadata.is_symlink() {
+            // resolve symlink
+            let target = path.metadata()?;
+            target.is_file()
         } else {
+            false
+        };
+        let contents = if has_contents {
             std::fs::read(path)?
+        } else {
+            Vec::new()
         };
         let mut status: FileStatus = metadata.into();
         status.name = archive_path;
@@ -561,11 +571,7 @@ mod tests {
     fn xar_write_read() {
         let workdir = TempDir::new().unwrap();
         arbtest(|u| {
-            let directory = DirBuilder::new()
-                .printable_names(true)
-                // TODO other file types
-                .file_types([random_dir::FileType::Regular])
-                .create(u)?;
+            let directory = DirBuilder::new().printable_names(true).create(u)?;
             let xar_path = workdir.path().join("test.xar");
             let mut xar = XarBuilder::new(File::create(&xar_path).unwrap());
             for entry in WalkDir::new(directory.path()).into_iter() {
