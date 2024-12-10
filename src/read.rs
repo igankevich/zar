@@ -8,7 +8,6 @@ use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
-use std::iter::FusedIterator;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::path::Path;
@@ -55,8 +54,12 @@ impl<R: Read + Seek> XarArchive<R> {
         })
     }
 
-    pub fn files(&mut self) -> Iter<R> {
-        Iter::new(self)
+    pub fn files(&self) -> &[xml::File] {
+        self.files.as_slice()
+    }
+
+    pub fn entry(&mut self, i: usize) -> Entry<R> {
+        Entry { i, archive: self }
     }
 
     fn seek_to_file(&mut self, i: usize) -> Result<(), Error> {
@@ -260,67 +263,6 @@ impl<'a, R: Read + Seek> Entry<'a, R> {
         &self.archive.files[self.i]
     }
 }
-
-pub struct Iter<'a, R: Read + Seek> {
-    archive: &'a mut XarArchive<R>,
-    first: usize,
-    last: usize,
-}
-
-impl<'a, R: Read + Seek> Iter<'a, R> {
-    fn new(archive: &'a mut XarArchive<R>) -> Self {
-        let last = archive.files.len();
-        Self {
-            archive,
-            first: 0,
-            last,
-        }
-    }
-
-    fn entry(&mut self, i: usize) -> Entry<'a, R> {
-        // TODO safe?
-        let archive = unsafe {
-            std::mem::transmute::<&mut XarArchive<R>, &'a mut XarArchive<R>>(self.archive)
-        };
-        Entry { archive, i }
-    }
-}
-
-impl<'a, R: Read + Seek> Iterator for Iter<'a, R> {
-    type Item = Entry<'a, R>;
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.first == self.last {
-            return None;
-        }
-        let entry = self.entry(self.first);
-        self.first += 1;
-        Some(entry)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.len();
-        (len, Some(len))
-    }
-}
-
-impl<'a, R: Read + Seek> DoubleEndedIterator for Iter<'a, R> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        if self.first == self.last {
-            return None;
-        }
-        self.last -= 1;
-        let entry = self.entry(self.last);
-        Some(entry)
-    }
-}
-
-impl<'a, R: Read + Seek> ExactSizeIterator for Iter<'a, R> {
-    fn len(&self) -> usize {
-        self.last - self.first
-    }
-}
-
-impl<'a, R: Read + Seek> FusedIterator for Iter<'a, R> {}
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(arbitrary::Arbitrary, PartialEq, Eq))]
