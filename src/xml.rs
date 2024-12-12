@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::io::BufReader;
 use std::io::Error;
 use std::io::Read;
@@ -21,9 +22,9 @@ use serde::Serializer;
 
 use crate::Checksum;
 use crate::ChecksumAlgo;
-use crate::FileType;
 use crate::FileMode;
 use crate::FileStatus;
+use crate::FileType;
 use crate::Header;
 use crate::Signer;
 
@@ -35,8 +36,12 @@ pub struct Xar {
 
 impl Xar {
     pub fn read<R: Read>(reader: R) -> Result<Self, Error> {
-        let reader = ZlibDecoder::new(reader);
-        let reader = BufReader::new(reader);
+        let mut reader = ZlibDecoder::new(reader);
+        //let reader = BufReader::new(reader);
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes)?;
+        //eprintln!("toc {}", String::from_utf8_lossy(&bytes[..]));
+        let reader = BufReader::new(std::io::Cursor::new(bytes));
         from_reader(reader).map_err(Error::other)
     }
 
@@ -44,7 +49,7 @@ impl Xar {
         &self,
         mut writer: W,
         checksum_algo: ChecksumAlgo,
-        signer: Option<&S>,
+        signer: &S,
     ) -> Result<(), Error> {
         let mut toc_uncompressed = String::new();
         toc_uncompressed.push_str(XML_DECLARATION);
@@ -65,12 +70,10 @@ impl Xar {
         // heap starts
         debug_assert!(checksum.as_ref().len() == checksum_algo.size());
         writer.write_all(checksum.as_ref())?;
-        if let Some(signer) = signer {
-            let signature = signer
-                .sign(checksum.as_ref())
-                .map_err(|_| Error::other("failed to sign"))?;
-            writer.write_all(&signature)?;
-        }
+        let signature = signer
+            .sign(checksum.as_ref())
+            .map_err(|_| Error::other("failed to sign"))?;
+        writer.write_all(&signature)?;
         Ok(())
     }
 }
@@ -121,7 +124,12 @@ pub struct File {
     pub mtime: Timestamp,
     #[serde(default)]
     pub ctime: Timestamp,
-    pub data: Data,
+    #[serde(default)]
+    #[serde(rename = "file")]
+    pub children: Vec<File>,
+    // TODO files can be nested if type == directory
+    #[serde(default)]
+    pub data: Option<Data>,
 }
 
 impl File {
@@ -138,8 +146,20 @@ impl File {
             atime: status.atime,
             mtime: status.mtime,
             ctime: status.ctime,
-            data,
+            children: Default::default(),
+            data: Some(data),
         }
+    }
+
+    pub fn into_vec(self) -> Vec<File> {
+        let mut queue = VecDeque::new();
+        queue.push_back(self);
+        let mut files = Vec::new();
+        while let Some(mut file) = queue.pop_front() {
+            queue.extend(std::mem::take(&mut file.children));
+            files.push(file);
+        }
+        files
     }
 }
 

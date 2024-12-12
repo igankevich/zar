@@ -5,3 +5,7 @@ pub trait Signer {
     fn signature_style(&self) -> &str;
     fn signature_len(&self) -> usize;
 }
+
+pub trait Verifier {
+    fn verify(&self, data: &[u8], signature: &[u8]) -> Result<(), Error>;
+}

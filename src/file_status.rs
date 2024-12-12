@@ -1,38 +1,25 @@
-use std::fs::Metadata;
 use std::path::PathBuf;
 
-use serde::Deserialize;
-use serde::Serialize;
-
+use crate::xml;
 use crate::FileMode;
 use crate::FileType;
-use crate::xml;
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Default)]
 pub struct FileStatus {
     pub name: PathBuf,
-    #[serde(rename = "type", default)]
     pub kind: FileType,
-    #[serde(default)]
     pub inode: u64,
-    #[serde(default)]
     pub deviceno: u64,
-    #[serde(default)]
     pub mode: FileMode,
-    #[serde(default)]
     pub uid: u32,
-    #[serde(default)]
     pub gid: u32,
-    #[serde(default)]
     pub atime: xml::Timestamp,
-    #[serde(default)]
     pub mtime: xml::Timestamp,
-    #[serde(default)]
     pub ctime: xml::Timestamp,
 }
 
-impl From<Metadata> for FileStatus {
-    fn from(other: Metadata) -> Self {
+impl From<std::fs::Metadata> for FileStatus {
+    fn from(other: std::fs::Metadata) -> Self {
         use std::os::unix::fs::MetadataExt;
         Self {
             kind: other.file_type().into(),

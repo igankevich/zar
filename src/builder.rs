@@ -24,13 +24,13 @@ pub struct Builder<W: Write> {
 
 impl<W: Write> Builder<W> {
     pub fn new(writer: W) -> Self {
-        Self::do_new::<NoSigner>(writer, None)
+        Self::do_new(writer, &NoSigner)
     }
 
-    fn do_new<S: Signer>(writer: W, signer: Option<&S>) -> Self {
+    fn do_new<S: Signer>(writer: W, signer: &S) -> Self {
         let checksum_algo = ChecksumAlgo::Sha256;
         Self {
-            offset: (checksum_algo.size() + signer.map(|s| s.signature_len()).unwrap_or(0)) as u64,
+            offset: (checksum_algo.size() + signer.signature_len()) as u64,
             writer,
             checksum_algo,
             files: Default::default(),
@@ -95,18 +95,19 @@ impl<W: Write> Builder<W> {
                 offset: self.offset,
             },
         );
-        self.offset += file.data.length;
+        self.offset += archived.len() as u64;
         self.files.push(file);
         self.contents.push(archived);
         Ok(())
     }
 
     pub fn finish(self) -> Result<W, Error> {
-        self.do_finish::<NoSigner>(None)
+        self.do_finish(&NoSigner)
     }
 
-    fn do_finish<S: Signer>(mut self, signer: Option<&S>) -> Result<W, Error> {
+    fn do_finish<S: Signer>(mut self, signer: &S) -> Result<W, Error> {
         let checksum_len = self.checksum_algo.size() as u64;
+        let signature_len = signer.signature_len();
         let xar = xml::Xar {
             toc: xml::Toc {
                 checksum: xml::TocChecksum {
@@ -116,18 +117,16 @@ impl<W: Write> Builder<W> {
                 },
                 files: self.files,
                 // http://users.wfu.edu/cottrell/productsign/productsign_linux.html
-                signature: signer.map(|signer| {
-                    xml::Signature {
-                        style: signer.signature_style().into(),
-                        offset: checksum_len,
-                        size: signer.signature_len() as u64,
-                        key_info: xml::KeyInfo {
-                            data: xml::X509Data {
-                                // TODO certs
-                                certificates: Default::default(),
-                            },
+                signature: (signature_len != 0).then_some(xml::Signature {
+                    style: signer.signature_style().into(),
+                    offset: checksum_len,
+                    size: signature_len as u64,
+                    key_info: xml::KeyInfo {
+                        data: xml::X509Data {
+                            // TODO certs
+                            certificates: Default::default(),
                         },
-                    }
+                    },
                 }),
                 creation_time: xml::Timestamp(SystemTime::now()),
             },
@@ -149,41 +148,43 @@ impl<W: Write> Builder<W> {
     }
 }
 
-pub struct SignedXarBuilder<W: Write>(Builder<W>);
+pub struct SignedBuilder<W: Write>(Builder<W>);
 
-impl<W: Write> SignedXarBuilder<W> {
+impl<W: Write> SignedBuilder<W> {
     pub fn new<S: Signer>(writer: W, signer: &S) -> Self {
-        Self(Builder::<W>::do_new(writer, Some(signer)))
+        Self(Builder::do_new(writer, signer))
     }
 
     pub fn sign<S: Signer>(self, signer: &S) -> Result<W, Error> {
-        self.0.do_finish(Some(signer))
+        self.0.do_finish(signer)
     }
 }
 
-impl<W: Write> Deref for SignedXarBuilder<W> {
+impl<W: Write> Deref for SignedBuilder<W> {
     type Target = Builder<W>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<W: Write> DerefMut for SignedXarBuilder<W> {
+impl<W: Write> DerefMut for SignedBuilder<W> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-// TODO how get rid of this?
-struct NoSigner;
+// A stub to produce unsigned archives.
+pub(crate) struct NoSigner;
 
 impl Signer for NoSigner {
     fn sign(&self, _data: &[u8]) -> Result<Vec<u8>, Error> {
         Ok(Vec::new())
     }
+
     fn signature_style(&self) -> &str {
         ""
     }
+
     fn signature_len(&self) -> usize {
         0
     }
