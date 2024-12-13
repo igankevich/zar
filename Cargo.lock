@@ -1087,6 +1087,7 @@ dependencies = [
  "arbitrary",
  "arbtest",
  "clap",
+ "libc",
  "random-dir",
  "similar-asserts",
  "tempfile",

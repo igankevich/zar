@@ -37,14 +37,14 @@ where
             .printable_names(true)
             .file_types([
                 random_dir::FileType::Regular,
-                //random_dir::FileType::Directory,
-                //random_dir::FileType::Symlink,
+                random_dir::FileType::Directory,
+                random_dir::FileType::Symlink,
                 random_dir::FileType::HardLink,
-                //random_dir::FileType::Socket,
-                //random_dir::FileType::Fifo,
-                // TODO unsupported?
-                //random_dir::FileType::CharDevice,
-                //random_dir::FileType::BlockDevice,
+                // Socket doesn't work with MacOS's xar.
+                #[cfg(not(target_os = "macos"))]
+                random_dir::FileType::Socket,
+                random_dir::FileType::Fifo,
+                // character and block devices are hard to test on macos
             ])
             .create(u)?;
         let mut xar1 = xar1();
@@ -60,6 +60,7 @@ where
         xar2.current_dir(&unpack_dir);
         let status = xar2.status().unwrap();
         assert!(status.success());
+        unsafe { libc::sync() };
         let files1 = list_dir_all(directory.path()).unwrap();
         let files2 = list_dir_all(&unpack_dir).unwrap();
         similar_asserts::assert_eq!(files1, files2);

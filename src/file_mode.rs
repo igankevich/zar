@@ -10,6 +10,12 @@ use serde::Serialize;
 #[serde(into = "String", try_from = "String")]
 pub struct FileMode(u32);
 
+impl FileMode {
+    pub fn into_inner(self) -> u32 {
+        self.0
+    }
+}
+
 impl Default for FileMode {
     fn default() -> Self {
         FileMode(0o644)
@@ -27,7 +33,7 @@ impl FromStr for FileMode {
 
 impl Display for FileMode {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "{:o}", self.0)
+        write!(f, "{:04o}", self.0)
     }
 }
 

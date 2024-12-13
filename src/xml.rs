@@ -39,7 +39,7 @@ impl Xar {
         //let reader = BufReader::new(reader);
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes)?;
-        eprintln!("toc {}", String::from_utf8_lossy(&bytes[..]));
+        eprintln!("read toc {}", String::from_utf8_lossy(&bytes[..]));
         let reader = BufReader::new(std::io::Cursor::new(bytes));
         from_reader(reader).map_err(Error::other)
     }
@@ -53,6 +53,7 @@ impl Xar {
         let mut toc_uncompressed = String::new();
         toc_uncompressed.push_str(XML_DECLARATION);
         to_writer(&mut toc_uncompressed, self).map_err(Error::other)?;
+        eprintln!("write toc {}", toc_uncompressed);
         let toc_len_uncompressed = toc_uncompressed.as_bytes().len();
         let mut encoder = ZlibEncoder::new(Vec::new(), flate2::Compression::best());
         encoder.write_all(toc_uncompressed.as_bytes())?;
@@ -127,20 +128,25 @@ pub struct File {
     #[serde(rename = "file")]
     pub children: Vec<File>,
     // TODO files can be nested if type == directory
-    #[serde(default)]
     pub data: Option<Data>,
-    #[serde(default)]
     pub link: Option<Link>,
+    pub device: Option<Device>,
 }
 
 impl File {
-    pub fn new(id: u64, status: FileStatus, data: Data) -> Self {
+    pub fn new(
+        id: u64,
+        status: FileStatus,
+        data: Option<Data>,
+        link: Option<Link>,
+        device: Option<Device>,
+    ) -> Self {
         Self {
             id,
             name: status.name,
             kind: status.kind.into(),
             inode: status.inode,
-            deviceno: status.deviceno,
+            deviceno: status.dev,
             mode: status.mode,
             uid: status.uid,
             gid: status.gid,
@@ -148,8 +154,9 @@ impl File {
             mtime: status.mtime,
             ctime: status.ctime,
             children: Default::default(),
-            data: Some(data),
-            link: None,
+            data,
+            link,
+            device,
         }
     }
 
@@ -192,6 +199,16 @@ pub struct Link {
     pub kind: String,
     #[serde(rename = "$value")]
     pub target: PathBuf,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
+#[serde(rename = "device", rename_all = "kebab-case")]
+pub struct Device {
+    #[serde(rename = "major")]
+    pub major: u32,
+    #[serde(rename = "minor")]
+    pub minor: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

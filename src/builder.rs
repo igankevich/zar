@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::fs::read_link;
 use std::fs::symlink_metadata;
 use std::io::Error;
 use std::io::Write;
@@ -14,6 +16,7 @@ use crate::Checksum;
 use crate::ChecksumAlgo;
 use crate::Compression;
 use crate::FileStatus;
+use crate::FileType;
 use crate::Signer;
 use crate::Walk;
 
@@ -54,7 +57,7 @@ impl<W: Write> Builder<W> {
         if path.is_dir() {
             self.append_dir_all(path, compression)
         } else {
-            self.append_file(path.to_path_buf(), path, compression)
+            self.append_file(path, path.to_path_buf(), path, compression)
         }
     }
 
@@ -71,27 +74,40 @@ impl<W: Write> Builder<W> {
             if entry_path == Path::new("") {
                 continue;
             }
-            self.append_file(entry_path, entry.path(), compression)?;
+            self.append_file(path, entry_path, entry.path(), compression)?;
         }
         Ok(())
     }
 
     pub fn append_file<P: AsRef<Path>>(
         &mut self,
+        prefix: &Path,
         archive_path: PathBuf,
         path: P,
         compression: Compression,
     ) -> Result<(), Error> {
         let path = path.as_ref();
         let metadata = symlink_metadata(path)?;
-        let has_contents = if metadata.is_file() {
-            true
+        let (has_contents, link) = if metadata.is_file() {
+            (true, None)
         } else if metadata.is_symlink() {
             // resolve symlink
-            let target = path.metadata()?;
-            target.is_file()
+            let (has_contents, broken) = match path.metadata() {
+                Ok(target_meta) => (target_meta.is_file(), false),
+                Err(_) => {
+                    // broken symlink
+                    (false, true)
+                }
+            };
+            let target = read_link(path)?;
+            let target = target.strip_prefix(prefix).unwrap_or(target.as_path());
+            let link = Some(xml::Link {
+                kind: if broken { "broken" } else { "file" }.into(),
+                target: target.to_path_buf(),
+            });
+            (has_contents, link)
         } else {
-            false
+            (false, None)
         };
         let contents = if has_contents {
             std::fs::read(path)?
@@ -100,25 +116,24 @@ impl<W: Write> Builder<W> {
         };
         let mut status: FileStatus = metadata.into();
         status.name = archive_path;
-        self.append_raw(status, &contents, compression)
+        self.append_raw(status, &contents, link, compression)
     }
 
     pub fn append_raw<C: AsRef<[u8]>>(
         &mut self,
         status: FileStatus,
         contents: C,
+        link: Option<xml::Link>,
         compression: Compression,
     ) -> Result<(), Error> {
         let contents = contents.as_ref();
-        let extracted_checksum = Checksum::new_from_data(self.checksum_algo, contents);
-        let mut encoder = compression.encoder(Vec::new())?;
-        encoder.write_all(contents)?;
-        let archived = encoder.finish()?;
-        let archived_checksum = Checksum::new_from_data(self.checksum_algo, &archived);
-        let file = xml::File::new(
-            self.files.len() as u64,
-            status,
-            xml::Data {
+        let (data, archived) = if !contents.is_empty() {
+            let extracted_checksum = Checksum::new_from_data(self.checksum_algo, contents);
+            let mut encoder = compression.encoder(Vec::new())?;
+            encoder.write_all(contents)?;
+            let archived = encoder.finish()?;
+            let archived_checksum = Checksum::new_from_data(self.checksum_algo, &archived);
+            let data = xml::Data {
                 archived_checksum: archived_checksum.into(),
                 extracted_checksum: extracted_checksum.into(),
                 encoding: xml::Encoding {
@@ -127,16 +142,51 @@ impl<W: Write> Builder<W> {
                 size: contents.len() as u64,
                 length: archived.len() as u64,
                 offset: self.offset,
-            },
-        );
+            };
+            (Some(data), archived)
+        } else {
+            (None, Vec::new())
+        };
+        let device =
+            if status.kind == FileType::CharacterSpecial || status.kind == FileType::BlockSpecial {
+                Some(xml::Device {
+                    major: unsafe { libc::major(status.rdev as _) } as _,
+                    minor: unsafe { libc::minor(status.rdev as _) } as _,
+                })
+            } else {
+                None
+            };
+        let file = xml::File::new(self.files.len() as u64 + 1, status, data, link, device);
         self.offset += archived.len() as u64;
         self.files.push(file);
         self.contents.push(archived);
         Ok(())
     }
 
-    pub fn finish(self) -> Result<W, Error> {
+    pub fn finish(mut self) -> Result<W, Error> {
+        self.generate_hard_links();
         self.do_finish(&NoSigner)
+    }
+
+    fn generate_hard_links(&mut self) {
+        use std::collections::hash_map::Entry::*;
+        let mut inodes = HashMap::new();
+        let num_files = self.files.len();
+        for i in 0..num_files {
+            let file = &mut self.files[i];
+            match inodes.entry((file.deviceno, file.inode)) {
+                Vacant(v) => {
+                    v.insert(i);
+                }
+                Occupied(o) => {
+                    let j = *o.get();
+                    self.files[i].kind.link = Some(self.files[j].id.to_string());
+                    if self.files[j].kind.link.is_none() {
+                        self.files[j].kind.link = Some("original".into());
+                    }
+                }
+            }
+        }
     }
 
     fn do_finish<S: Signer>(mut self, signer: &S) -> Result<W, Error> {

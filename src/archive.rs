@@ -15,7 +15,10 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixDatagram;
 use std::path::Path;
 
+use libc::makedev;
+
 use crate::mkfifo;
+use crate::mknod;
 use crate::path_to_c_string;
 use crate::set_file_modified_time;
 use crate::xml;
@@ -131,14 +134,19 @@ impl<R: Read + Seek> Archive<R> {
                     }
                     FileType::Fifo => {
                         let path = path_to_c_string(dest_file)?;
-                        mkfifo(&path, entry.file().mode.into())?;
+                        mkfifo(&path, entry.file().mode.into_inner() as _)?;
                         set_file_modified_time(&path, entry.file().mtime.0)?;
                     }
-                    FileType::CharacterSpecial => {
-                        // TODO
-                    }
-                    FileType::BlockSpecial => {
-                        // TODO
+                    #[allow(unused_unsafe)]
+                    FileType::CharacterSpecial | FileType::BlockSpecial => {
+                        let path = path_to_c_string(dest_file)?;
+                        let dev = entry.file().device.as_ref().unwrap();
+                        let dev = unsafe { makedev(dev.major as _, dev.minor as _) };
+                        mknod(
+                            &path,
+                            entry.file().mode.into_inner() as _,
+                            dev as _,
+                        )?;
                     }
                     FileType::Socket => {
                         UnixDatagram::bind(&dest_file)?;
@@ -208,7 +216,8 @@ impl<'a, R: Read + Seek> Entry<'a, R> {
                 ))
             }
             None if file.kind.value == "file"
-                || (file.kind.value == "hardlink" && file.kind.link.as_deref() == Some("original")) =>
+                || (file.kind.value == "hardlink"
+                    && file.kind.link.as_deref() == Some("original")) =>
             {
                 // The `Data` may not be stored for empty files.
                 let compression = Compression::None;
@@ -279,6 +288,15 @@ mod tests {
 
     #[test]
     fn xar_read() {
+        let file = File::open("symlink.xar").unwrap();
+        let mut archive = Archive::new(file).unwrap();
+        for i in 0..archive.num_entries() {
+            let entry = archive.entry(i);
+            if let Some(ref data) = entry.file().data {
+                eprintln!("file {:?}", data.encoding.style);
+            }
+        }
+        /*
         for entry in WalkDir::new("pkgs").into_iter() {
             let entry = entry.unwrap();
             if entry.path().metadata().unwrap().is_dir() {
@@ -294,6 +312,7 @@ mod tests {
                 }
             }
         }
+        */
     }
 
     #[test]
@@ -325,7 +344,7 @@ mod tests {
                 if entry_path == Path::new("") {
                     continue;
                 }
-                xar.append_file(entry_path, entry.path(), Compression::Gzip)
+                xar.append_file(directory.path(), entry_path, entry.path(), Compression::Gzip)
                     .unwrap();
             }
             let expected_files = xar.files().to_vec();
