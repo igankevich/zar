@@ -24,7 +24,6 @@ use crate::Checksum;
 use crate::ChecksumAlgo;
 use crate::FileMode;
 use crate::FileStatus;
-use crate::FileType;
 use crate::Header;
 use crate::Signer;
 
@@ -40,7 +39,7 @@ impl Xar {
         //let reader = BufReader::new(reader);
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes)?;
-        //eprintln!("toc {}", String::from_utf8_lossy(&bytes[..]));
+        eprintln!("toc {}", String::from_utf8_lossy(&bytes[..]));
         let reader = BufReader::new(std::io::Cursor::new(bytes));
         from_reader(reader).map_err(Error::other)
     }
@@ -130,6 +129,8 @@ pub struct File {
     // TODO files can be nested if type == directory
     #[serde(default)]
     pub data: Option<Data>,
+    #[serde(default)]
+    pub link: Option<Link>,
 }
 
 impl File {
@@ -137,7 +138,7 @@ impl File {
         Self {
             id,
             name: status.name,
-            kind: status.kind,
+            kind: status.kind.into(),
             inode: status.inode,
             deviceno: status.deviceno,
             mode: status.mode,
@@ -148,6 +149,7 @@ impl File {
             ctime: status.ctime,
             children: Default::default(),
             data: Some(data),
+            link: None,
         }
     }
 
@@ -161,6 +163,35 @@ impl File {
         }
         files
     }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
+#[serde(rename = "type", rename_all = "kebab-case")]
+pub struct FileType {
+    #[serde(rename = "@link")]
+    pub link: Option<String>,
+    #[serde(rename = "$value")]
+    pub value: String,
+}
+
+impl Default for FileType {
+    fn default() -> Self {
+        Self {
+            link: None,
+            value: "file".into(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
+#[serde(rename = "link", rename_all = "kebab-case")]
+pub struct Link {
+    #[serde(rename = "@type")]
+    pub kind: String,
+    #[serde(rename = "$value")]
+    pub target: PathBuf,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

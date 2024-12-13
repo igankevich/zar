@@ -1,29 +1,72 @@
-use serde::Deserialize;
-use serde::Serialize;
+use std::io::Error;
+use std::str::FromStr;
 
-#[derive(
-    Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default,
-)]
+use crate::xml;
+
+// TODO custom serialize/deserialize
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
 pub enum FileType {
     #[default]
-    #[serde(rename = "file")]
     File,
-    #[serde(rename = "hardlink")]
-    Hardlink,
-    #[serde(rename = "directory")]
+    Hardlink(Hardlink),
     Directory,
-    #[serde(rename = "symlink")]
     Symlink,
-    #[serde(rename = "fifo")]
     Fifo,
-    #[serde(rename = "character special")]
     CharacterSpecial,
-    #[serde(rename = "block special")]
     BlockSpecial,
-    #[serde(rename = "socket")]
     Socket,
-    #[serde(rename = "whiteout")]
     Whiteout,
+}
+
+impl FileType {
+    pub fn as_str(self) -> &'static str {
+        use FileType::*;
+        match self {
+            File => "file",
+            Hardlink(..) => "hardlink",
+            Directory => "directory",
+            Symlink => "symlink",
+            Fifo => "fifo",
+            CharacterSpecial => "character special",
+            BlockSpecial => "block special",
+            Socket => "socket",
+            Whiteout => "whiteout",
+        }
+    }
+}
+
+impl TryFrom<xml::FileType> for FileType {
+    type Error = Error;
+
+    fn try_from(other: xml::FileType) -> Result<Self, Self::Error> {
+        use FileType::*;
+        match other.value.as_str() {
+            "file" => Ok(File),
+            "hardlink" => Ok(Hardlink(other.link.unwrap().parse()?)),
+            "directory" => Ok(Directory),
+            "symlink" => Ok(Symlink),
+            "fifo" => Ok(Fifo),
+            "character special" => Ok(CharacterSpecial),
+            "block special" => Ok(BlockSpecial),
+            "socket" => Ok(Socket),
+            "whiteout" => Ok(Whiteout),
+            _ => Err(Error::other("invalid file type")),
+        }
+    }
+}
+
+impl From<FileType> for xml::FileType {
+    fn from(other: FileType) -> Self {
+        use FileType::*;
+        let link = match other {
+            Hardlink(hard_link) => Some(hard_link.to_string()),
+            _ => None,
+        };
+        Self {
+            link,
+            value: other.as_str().to_string(),
+        }
+    }
 }
 
 impl From<std::fs::FileType> for FileType {
@@ -45,6 +88,34 @@ impl From<std::fs::FileType> for FileType {
             Self::File
         } else {
             Default::default()
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
+pub enum Hardlink {
+    #[default]
+    Original,
+    Id(u64),
+}
+
+impl Hardlink {
+    pub fn to_string(&self) -> String {
+        match self {
+            Self::Original => "original".to_string(),
+            Self::Id(id) => id.to_string(),
+        }
+    }
+}
+
+impl FromStr for Hardlink {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s == "original" {
+            Ok(Self::Original)
+        } else {
+            Ok(Self::Id(s.parse().map_err(Error::other)?))
         }
     }
 }

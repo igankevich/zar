@@ -7,12 +7,15 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
+use normalize_path::NormalizePath;
+
 use crate::xml;
 use crate::Checksum;
 use crate::ChecksumAlgo;
 use crate::Compression;
 use crate::FileStatus;
 use crate::Signer;
+use crate::Walk;
 
 pub struct Builder<W: Write> {
     writer: W,
@@ -42,7 +45,38 @@ impl<W: Write> Builder<W> {
         &self.files[..]
     }
 
-    pub fn add_file_by_path<P: AsRef<Path>>(
+    pub fn append_path_all<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+        compression: Compression,
+    ) -> Result<(), Error> {
+        let path = path.as_ref();
+        if path.is_dir() {
+            self.append_dir_all(path, compression)
+        } else {
+            self.append_file(path.to_path_buf(), path, compression)
+        }
+    }
+
+    pub fn append_dir_all<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+        compression: Compression,
+    ) -> Result<(), Error> {
+        let path = path.as_ref();
+        let mut walker = path.walk()?;
+        while let Some(entry) = walker.next() {
+            let entry = entry?;
+            let entry_path = entry.path().strip_prefix(path).unwrap().normalize();
+            if entry_path == Path::new("") {
+                continue;
+            }
+            self.append_file(entry_path, entry.path(), compression)?;
+        }
+        Ok(())
+    }
+
+    pub fn append_file<P: AsRef<Path>>(
         &mut self,
         archive_path: PathBuf,
         path: P,
@@ -66,10 +100,10 @@ impl<W: Write> Builder<W> {
         };
         let mut status: FileStatus = metadata.into();
         status.name = archive_path;
-        self.add_file(status, &contents, compression)
+        self.append_raw(status, &contents, compression)
     }
 
-    pub fn add_file<C: AsRef<[u8]>>(
+    pub fn append_raw<C: AsRef<[u8]>>(
         &mut self,
         status: FileStatus,
         contents: C,

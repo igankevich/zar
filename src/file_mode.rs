@@ -44,6 +44,12 @@ impl From<FileMode> for String {
     }
 }
 
+impl From<FileMode> for u32 {
+    fn from(other: FileMode) -> u32 {
+        other.0
+    }
+}
+
 impl From<u32> for FileMode {
     fn from(other: u32) -> Self {
         Self(other & 0o7777)
