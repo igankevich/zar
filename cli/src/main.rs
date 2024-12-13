@@ -3,6 +3,7 @@ use std::io::Error;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::str::FromStr;
 
 use clap::Parser;
 
@@ -27,6 +28,22 @@ struct Args {
     /// An archive.
     #[arg(short = 'f')]
     file_name: PathBuf,
+    /// Use specified compression codec.
+    #[arg(value_enum, long = "compression")]
+    compression: Option<Compression>,
+    /// Use LZMA compression.
+    #[arg(short = 'a')]
+    lzma: bool,
+    #[arg(short = 'j')]
+    bzip2: bool,
+    #[arg(short = 'z')]
+    gzip: bool,
+    /// XML header checksum.
+    #[arg(long = "toc-cksum", default_value = "sha256")]
+    toc_checksum: ChecksumAlgo,
+    /// File checksum.
+    #[arg(long = "file-cksum", default_value = "sha256")]
+    file_checksum: ChecksumAlgo,
     /// Files.
     #[arg(
         trailing_var_arg = true,
@@ -46,6 +63,22 @@ impl Args {
             (F, F, T) => Ok(Command::List),
             (F, F, F) => Err(Error::other("no command specified")),
             (..) => Err(Error::other("conflicting commands specified")),
+        }
+    }
+    fn compression(&self) -> Result<Compression, Error> {
+        use Compression::*;
+        const T: bool = true;
+        const F: bool = false;
+        match (self.gzip, self.bzip2, self.lzma, self.compression) {
+            (_, F, F, Some(Gzip)) => Ok(Gzip),
+            (T, F, F, None) => Ok(Gzip),
+            (F, _, F, Some(Bzip2)) => Ok(Bzip2),
+            (F, T, F, None) => Ok(Bzip2),
+            (F, F, _, Some(Lzma)) => Ok(Lzma),
+            (F, F, T, None) => Ok(Lzma),
+            (F, F, F, Some(c)) => Ok(c),
+            (F, F, F, None) => Ok(Gzip),
+            (..) => Err(Error::other("conflicting compression codecs specified")),
         }
     }
 }
@@ -70,10 +103,11 @@ fn do_main() -> Result<ExitCode, Error> {
 }
 
 fn create(args: Args) -> Result<ExitCode, Error> {
+    let compression: zar::Compression = args.compression()?.into();
     let file = File::create(&args.file_name)?;
     let mut builder = zar::Builder::new(file);
     for path in args.paths.iter() {
-        builder.append_dir_all(path, zar::Compression::Gzip)?;
+        builder.append_dir_all(path, compression)?;
     }
     builder.finish()?;
     Ok(ExitCode::SUCCESS)
@@ -102,4 +136,71 @@ enum Command {
     Create,
     Extract,
     List,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Compression {
+    No,
+    Gzip,
+    Bzip2,
+    Lzma,
+}
+
+impl FromStr for Compression {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "none" => Ok(Compression::No),
+            "gzip" => Ok(Compression::Gzip),
+            "bzip2" => Ok(Compression::Bzip2),
+            "lzma" => Ok(Compression::Lzma),
+            _ => Err(Error::other("invalid compression")),
+        }
+    }
+}
+
+impl From<Compression> for zar::Compression {
+    fn from(other: Compression) -> Self {
+        match other {
+            Compression::No => zar::Compression::None,
+            Compression::Gzip => zar::Compression::Gzip,
+            Compression::Bzip2 => zar::Compression::Bzip2,
+            Compression::Lzma => panic!("lzma is not supported"),
+        }
+    }
+}
+
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+enum ChecksumAlgo {
+    Md5,
+    Sha1,
+    #[default]
+    Sha256,
+    Sha512,
+}
+
+impl FromStr for ChecksumAlgo {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "md5" => Ok(ChecksumAlgo::Md5),
+            "sha1" => Ok(ChecksumAlgo::Sha1),
+            "sha256" => Ok(ChecksumAlgo::Sha256),
+            "sha512" => Ok(ChecksumAlgo::Sha512),
+            _ => Err(Error::other("invalid checksum algorithm")),
+        }
+    }
+}
+
+impl From<ChecksumAlgo> for zar::ChecksumAlgo {
+    fn from(other: ChecksumAlgo) -> Self {
+        match other {
+            ChecksumAlgo::Md5 => zar::ChecksumAlgo::Md5,
+            ChecksumAlgo::Sha1 => zar::ChecksumAlgo::Sha1,
+            ChecksumAlgo::Sha256 => zar::ChecksumAlgo::Sha256,
+            ChecksumAlgo::Sha512 => zar::ChecksumAlgo::Sha512,
+        }
+    }
 }

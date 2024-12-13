@@ -20,28 +20,63 @@ use crate::FileType;
 use crate::Signer;
 use crate::Walk;
 
+pub struct Options {
+    file_checksum_algo: ChecksumAlgo,
+    toc_checksum_algo: ChecksumAlgo,
+}
+
+impl Options {
+    pub fn new() -> Self {
+        Self {
+            file_checksum_algo: Default::default(),
+            toc_checksum_algo: Default::default(),
+        }
+    }
+
+    pub fn file_checksum_algo(mut self, algo: ChecksumAlgo) -> Self {
+        self.file_checksum_algo = algo;
+        self
+    }
+
+    pub fn toc_checksum_algo(mut self, algo: ChecksumAlgo) -> Self {
+        self.toc_checksum_algo = algo;
+        self
+    }
+
+    pub fn create<W: Write, S: Signer>(self, writer: W, signer: &S) -> Builder<W> {
+        Builder {
+            offset: (self.toc_checksum_algo.size() + signer.signature_len()) as u64,
+            writer,
+            file_checksum_algo: self.file_checksum_algo,
+            toc_checksum_algo: self.toc_checksum_algo,
+            files: Default::default(),
+            contents: Default::default(),
+        }
+    }
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct Builder<W: Write> {
     writer: W,
-    checksum_algo: ChecksumAlgo,
+    file_checksum_algo: ChecksumAlgo,
+    toc_checksum_algo: ChecksumAlgo,
     files: Vec<xml::File>,
     contents: Vec<Vec<u8>>,
     offset: u64,
 }
 
 impl<W: Write> Builder<W> {
-    pub fn new(writer: W) -> Self {
-        Self::do_new(writer, &NoSigner)
+    pub fn options() -> Options {
+        Options::new()
     }
 
-    fn do_new<S: Signer>(writer: W, signer: &S) -> Self {
-        let checksum_algo = ChecksumAlgo::Sha256;
-        Self {
-            offset: (checksum_algo.size() + signer.signature_len()) as u64,
-            writer,
-            checksum_algo,
-            files: Default::default(),
-            contents: Default::default(),
-        }
+    pub fn new(writer: W) -> Self {
+        Options::new().create(writer, &NoSigner)
     }
 
     pub fn files(&self) -> &[xml::File] {
@@ -128,11 +163,11 @@ impl<W: Write> Builder<W> {
     ) -> Result<(), Error> {
         let contents = contents.as_ref();
         let (data, archived) = if !contents.is_empty() {
-            let extracted_checksum = Checksum::new_from_data(self.checksum_algo, contents);
+            let extracted_checksum = Checksum::new_from_data(self.file_checksum_algo, contents);
             let mut encoder = compression.encoder(Vec::new())?;
             encoder.write_all(contents)?;
             let archived = encoder.finish()?;
-            let archived_checksum = Checksum::new_from_data(self.checksum_algo, &archived);
+            let archived_checksum = Checksum::new_from_data(self.file_checksum_algo, &archived);
             let data = xml::Data {
                 archived_checksum: archived_checksum.into(),
                 extracted_checksum: extracted_checksum.into(),
@@ -190,12 +225,12 @@ impl<W: Write> Builder<W> {
     }
 
     fn do_finish<S: Signer>(mut self, signer: &S) -> Result<W, Error> {
-        let checksum_len = self.checksum_algo.size() as u64;
+        let checksum_len = self.toc_checksum_algo.size() as u64;
         let signature_len = signer.signature_len();
         let xar = xml::Xar {
             toc: xml::Toc {
                 checksum: xml::TocChecksum {
-                    algo: self.checksum_algo,
+                    algo: self.toc_checksum_algo,
                     offset: 0,
                     size: checksum_len,
                 },
@@ -216,7 +251,7 @@ impl<W: Write> Builder<W> {
             },
         };
         // write header and toc
-        xar.write(self.writer.by_ref(), self.checksum_algo, signer)?;
+        xar.write(self.writer.by_ref(), self.toc_checksum_algo, signer)?;
         for content in self.contents.into_iter() {
             self.writer.write_all(&content)?;
         }
@@ -236,7 +271,7 @@ pub struct SignedBuilder<W: Write>(Builder<W>);
 
 impl<W: Write> SignedBuilder<W> {
     pub fn new<S: Signer>(writer: W, signer: &S) -> Self {
-        Self(Builder::do_new(writer, signer))
+        Self(Options::new().create(writer, signer))
     }
 
     pub fn sign<S: Signer>(self, signer: &S) -> Result<W, Error> {

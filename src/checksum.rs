@@ -123,13 +123,14 @@ impl AsRef<[u8]> for Checksum {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
 #[cfg_attr(test, derive(arbitrary::Arbitrary, PartialEq, Eq))]
 #[serde(rename_all = "lowercase")]
 #[repr(u32)]
 pub enum ChecksumAlgo {
     Sha1 = 1,
     Md5 = 2,
+    #[default]
     Sha256 = 3,
     Sha512 = 4,
 }

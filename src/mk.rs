@@ -51,6 +51,7 @@ pub fn set_file_modified_time(path: &CStr, t: SystemTime) -> Result<(), Error> {
     Ok(())
 }
 
+#[allow(unused)]
 pub fn lchown(path: &CStr, uid: uid_t, gid: gid_t) -> Result<(), Error> {
     let ret = unsafe { libc::lchown(path.as_ptr(), uid, gid) };
     if ret < 0 {

@@ -88,24 +88,43 @@ impl<R: Read + Seek> Archive<R> {
     }
 
     pub fn extract<P: AsRef<Path>>(mut self, dest_dir: P) -> Result<(), Error> {
+        use std::collections::hash_map::Entry::*;
         eprintln!("extract {}", self.num_entries());
         let dest_dir = dest_dir.as_ref();
         let mut dirs = Vec::new();
         // id -> path
         let mut file_paths = HashMap::new();
         let mut hard_links = Vec::new();
+        // (dev, inode) -> id
+        let mut inodes = HashMap::new();
         for i in 0..self.num_entries() {
             let mut entry = self.entry(i);
             let dest_file = dest_dir.join(&entry.file().name);
             let file_type: FileType = entry.file().kind.clone().try_into()?;
             file_paths.insert(entry.file().id, dest_file.clone());
+            match inodes.entry((entry.file().deviceno, entry.file().inode)) {
+                Vacant(v) => {
+                    if !matches!(file_type, FileType::Hardlink(Hardlink::Id(..))) {
+                        v.insert(entry.file().id);
+                    }
+                }
+                Occupied(o) => {
+                    let id = *o.get();
+                    // hard link
+                    hard_links.push((id, dest_file));
+                    continue;
+                }
+            }
             match entry.reader()? {
                 Some(mut reader) => {
                     eprintln!("extracting {:?}", dest_file);
                     let mut file = File::create(&dest_file)?;
                     std::io::copy(&mut reader, &mut file)?;
                     file.set_permissions(Permissions::from_mode(entry.file().mode.into()))?;
-                    file.set_modified(entry.file().mtime.0)?;
+                    //file.set_modified(entry.file().mtime.0)?;
+                    drop(file);
+                    let path = path_to_c_string(dest_file)?;
+                    set_file_modified_time(&path, entry.file().mtime.0)?;
                 }
                 None => match file_type {
                     FileType::File => {
@@ -131,6 +150,8 @@ impl<R: Read + Seek> Archive<R> {
                     FileType::Symlink => {
                         let target = entry.file().link.as_ref().unwrap().target.as_path();
                         symlink(target, &dest_file)?;
+                        let path = path_to_c_string(dest_file)?;
+                        set_file_modified_time(&path, entry.file().mtime.0)?;
                     }
                     FileType::Fifo => {
                         let path = path_to_c_string(dest_file)?;
@@ -142,11 +163,7 @@ impl<R: Read + Seek> Archive<R> {
                         let path = path_to_c_string(dest_file)?;
                         let dev = entry.file().device.as_ref().unwrap();
                         let dev = unsafe { makedev(dev.major as _, dev.minor as _) };
-                        mknod(
-                            &path,
-                            entry.file().mode.into_inner() as _,
-                            dev as _,
-                        )?;
+                        mknod(&path, entry.file().mode.into_inner() as _, dev as _)?;
                     }
                     FileType::Socket => {
                         UnixDatagram::bind(&dest_file)?;
@@ -288,7 +305,7 @@ mod tests {
 
     #[test]
     fn xar_read() {
-        let file = File::open("symlink.xar").unwrap();
+        let file = File::open("hardlink.xar").unwrap();
         let mut archive = Archive::new(file).unwrap();
         for i in 0..archive.num_entries() {
             let entry = archive.entry(i);
@@ -344,8 +361,13 @@ mod tests {
                 if entry_path == Path::new("") {
                     continue;
                 }
-                xar.append_file(directory.path(), entry_path, entry.path(), Compression::Gzip)
-                    .unwrap();
+                xar.append_file(
+                    directory.path(),
+                    entry_path,
+                    entry.path(),
+                    Compression::Gzip,
+                )
+                .unwrap();
             }
             let expected_files = xar.files().to_vec();
             xar.sign(&signer).unwrap();
@@ -358,17 +380,23 @@ mod tests {
                 if let Some(mut reader) = entry.reader().unwrap() {
                     let mut buf = Vec::new();
                     reader.read_to_end(&mut buf).unwrap();
-                    let data = entry.file().data.clone().unwrap();
-                    let actual_checksum = data.extracted_checksum.value.compute(&buf);
-                    assert_eq!(
-                        data.extracted_checksum.value,
-                        actual_checksum,
-                        "file = {:?}",
-                        entry.file()
-                    );
+                    match entry.file().data.clone() {
+                        Some(data) => {
+                            let actual_checksum = data.extracted_checksum.value.compute(&buf);
+                            assert_eq!(
+                                data.extracted_checksum.value,
+                                actual_checksum,
+                                "file = {:?}",
+                                entry.file()
+                            );
+                        }
+                        None => {
+                            assert!(buf.is_empty());
+                        }
+                    }
                 }
             }
-            assert_eq!(expected_files, actual_files);
+            similar_asserts::assert_eq!(expected_files, actual_files);
             Ok(())
         });
     }

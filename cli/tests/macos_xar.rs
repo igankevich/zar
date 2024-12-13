@@ -31,6 +31,9 @@ where
     let files_xar = workdir.path().join("files.xar");
     let unpack_dir = workdir.path().join("unpacked");
     arbtest(|u| {
+        let compression = u.choose(&ALL_CODECS).unwrap();
+        let toc_checksum_algo = u.choose(&ALL_CHECKSUM_ALGOS).unwrap();
+        let file_checksum_algo = u.choose(&ALL_CHECKSUM_ALGOS).unwrap();
         remove_dir_all(&unpack_dir).ok();
         create_dir_all(&unpack_dir).unwrap();
         let directory = DirBuilder::new()
@@ -47,7 +50,14 @@ where
                 // character and block devices are hard to test on macos
             ])
             .create(u)?;
+        unsafe { libc::sync() };
         let mut xar1 = xar1();
+        xar1.arg("--compression");
+        xar1.arg(compression);
+        xar1.arg("--toc-cksum");
+        xar1.arg(toc_checksum_algo);
+        xar1.arg("--file-cksum");
+        xar1.arg(file_checksum_algo);
         xar1.arg("-cf");
         xar1.arg(&files_xar);
         xar1.arg(".");
@@ -65,8 +75,17 @@ where
         let files2 = list_dir_all(&unpack_dir).unwrap();
         similar_asserts::assert_eq!(files1, files2);
         Ok(())
-    });
+    })
+    //.seed(0xe375aaae00000020) // TODO
+    .budget(std::time::Duration::from_secs(5));
 }
+
+const ALL_CODECS: [&str; 3] = ["none", "gzip", "bzip2"]; // TODO lzma
+
+#[cfg(target_os = "macos")]
+const ALL_CHECKSUM_ALGOS: [&str; 3] = ["sha1", "sha256", "sha512"];
+#[cfg(target_os = "linux")]
+const ALL_CHECKSUM_ALGOS: [&str; 2] = ["md5", "sha1"];
 
 fn do_not_truncate_assertions() {
     NO_TRUNCATE.call_once(|| {

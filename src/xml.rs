@@ -125,11 +125,14 @@ pub struct File {
     #[serde(default)]
     pub ctime: Timestamp,
     #[serde(default)]
-    #[serde(rename = "file")]
+    #[serde(rename = "file", skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<File>,
     // TODO files can be nested if type == directory
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data: Option<Data>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<Link>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device: Option<Device>,
 }
 
@@ -176,7 +179,7 @@ impl File {
 #[cfg_attr(test, derive(PartialEq, Eq))]
 #[serde(rename = "type", rename_all = "kebab-case")]
 pub struct FileType {
-    #[serde(rename = "@link")]
+    #[serde(rename = "@link", skip_serializing_if = "Option::is_none")]
     pub link: Option<String>,
     #[serde(rename = "$value")]
     pub value: String,
@@ -284,7 +287,11 @@ impl Serialize for KeyInfo {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename = "X509Data")]
 pub struct X509Data {
-    #[serde(rename = "X509Certificate", default)]
+    #[serde(
+        rename = "X509Certificate",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub certificates: Vec<X509Certificate>,
 }
 

@@ -1076,6 +1076,7 @@ dependencies = [
  "serde",
  "sha1",
  "sha2",
+ "similar-asserts",
  "tempfile",
  "walkdir",
 ]
