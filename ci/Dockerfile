@@ -31,6 +31,13 @@ RUN cargo install --quiet --no-default-features --features native-certs cargo-de
 RUN curl --location --silent --fail --output /usr/local/bin/shfmt https://github.com/mvdan/sh/releases/download/v3.8.0/shfmt_v3.8.0_linux_amd64 && \
     chmod +x /usr/local/bin/shfmt
 
+RUN export DEBIAN_FRONTEND=noninteractive \
+    && apt-get -qq update \
+    && apt-get -qq install --no-install-recommends \
+    liblzma-dev \
+    libbz2-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN git clone https://github.com/mackyle/xar /tmp/xar \
     && cd /tmp/xar/xar \
     && sed -i -e 's/OpenSSL_add_all_ciphers/CRYPTO_free/g' configure.ac \

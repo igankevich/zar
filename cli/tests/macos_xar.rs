@@ -83,10 +83,10 @@ where
     });
 }
 
-#[cfg(target_os = "macos")]
+//#[cfg(target_os = "macos")]
 const ALL_CODECS: [&str; 3] = ["none", "gzip", "bzip2"];
-#[cfg(target_os = "linux")]
-const ALL_CODECS: [&str; 4] = ["none", "gzip", "bzip2", "xz"];
+//#[cfg(target_os = "linux")]
+//const ALL_CODECS: [&str; 4] = ["none", "gzip", "bzip2", "xz"];
 
 #[cfg(target_os = "macos")]
 const ALL_CHECKSUM_ALGOS: [&str; 3] = ["sha1", "sha256", "sha512"];
