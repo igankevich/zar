@@ -230,7 +230,7 @@ impl<'a, R: Read + Seek> Entry<'a, R> {
                     compression.decoder(self.archive.reader.by_ref().take(data.length)),
                 ))
             }
-            None if file.kind.value == "file"
+            None if file.kind.value != "file"
                 || (file.kind.value == "hardlink"
                     && file.kind.link.as_deref() == Some("original")) =>
             {
@@ -262,14 +262,12 @@ impl Verifier for NoVerifier {
 #[cfg(test)]
 mod tests {
     use std::fs::File;
-    use std::path::Path;
+    use std::sync::Once;
 
     use arbtest::arbtest;
-    use normalize_path::NormalizePath;
     use random_dir::DirBuilder;
     use rsa::rand_core::OsRng;
     use tempfile::TempDir;
-    use walkdir::WalkDir;
 
     use super::*;
     use crate::Builder;
@@ -282,7 +280,7 @@ mod tests {
     #[test]
     fn xar_read() {
         let file = File::open("hardlink.xar").unwrap();
-        let mut archive = Archive::new(file).unwrap();
+        let mut archive = Archive::new_unsigned(file).unwrap();
         for i in 0..archive.num_entries() {
             let entry = archive.entry(i);
             if let Some(ref data) = entry.file().data {
@@ -322,33 +320,17 @@ mod tests {
     }
 
     fn test_xar_write_read<S: Signer, V: Verifier>(signer: S, verifier: V) {
+        do_not_truncate_assertions();
         let workdir = TempDir::new().unwrap();
         arbtest(|u| {
             let directory = DirBuilder::new().printable_names(true).create(u)?;
             let xar_path = workdir.path().join("test.xar");
             let mut xar = Builder::new(File::create(&xar_path).unwrap(), Some(&signer));
-            for entry in WalkDir::new(directory.path()).into_iter() {
-                let entry = entry.unwrap();
-                let entry_path = entry
-                    .path()
-                    .strip_prefix(directory.path())
-                    .unwrap()
-                    .normalize();
-                if entry_path == Path::new("") {
-                    continue;
-                }
-                xar.append_file(
-                    directory.path(),
-                    entry_path,
-                    entry.path(),
-                    Compression::Gzip,
-                )
-                .unwrap();
-            }
+            xar.append_dir_all(directory.path(), Compression::Gzip).unwrap();
             let expected_files = xar.files().to_vec();
             xar.finish().unwrap();
             let reader = File::open(&xar_path).unwrap();
-            let mut xar_archive = SignedArchive::new(reader, &verifier).unwrap();
+            let mut xar_archive = Archive::new(reader, Some(&verifier)).unwrap();
             let mut actual_files = Vec::new();
             for i in 0..xar_archive.num_entries() {
                 let mut entry = xar_archive.entry(i);
@@ -376,4 +358,12 @@ mod tests {
             Ok(())
         });
     }
+
+    fn do_not_truncate_assertions() {
+        NO_TRUNCATE.call_once(|| {
+            std::env::set_var("SIMILAR_ASSERTS_MAX_STRING_LENGTH", "0");
+        });
+    }
+
+    static NO_TRUNCATE: Once = Once::new();
 }

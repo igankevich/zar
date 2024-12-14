@@ -1,3 +1,5 @@
+use std::collections::hash_map::Entry::Occupied;
+use std::collections::hash_map::Entry::Vacant;
 use std::collections::HashMap;
 use std::fs::read_link;
 use std::fs::symlink_metadata;
@@ -56,6 +58,7 @@ impl Options {
             toc_checksum_algo: self.toc_checksum_algo,
             files: Default::default(),
             contents: Default::default(),
+            inodes: Default::default(),
         }
     }
 }
@@ -73,6 +76,8 @@ pub struct Builder<W: Write, S: Signer> {
     toc_checksum_algo: ChecksumAlgo,
     files: Vec<xml::File>,
     contents: Vec<Vec<u8>>,
+    // (dev, inode) -> file index
+    inodes: HashMap<(u64, u64), usize>,
     offset: u64,
 }
 
@@ -193,7 +198,22 @@ impl<W: Write, S: Signer> Builder<W, S> {
             } else {
                 None
             };
-        let file = xml::File::new(self.files.len() as u64 + 1, status, data, link, device);
+        let mut file = xml::File::new(self.files.len() as u64 + 1, status, data, link, device);
+        // handle hard links
+        match self.inodes.entry((file.deviceno, file.inode)) {
+            Vacant(v) => {
+                let i = self.files.len();
+                v.insert(i);
+            }
+            Occupied(o) => {
+                let i = *o.get();
+                let original_file = &mut self.files[i];
+                file.kind.link = Some(original_file.id.to_string());
+                if original_file.kind.link.is_none() {
+                    original_file.kind.link = Some("original".into());
+                }
+            }
+        }
         self.offset += archived.len() as u64;
         self.files.push(file);
         self.contents.push(archived);
@@ -201,32 +221,6 @@ impl<W: Write, S: Signer> Builder<W, S> {
     }
 
     pub fn finish(mut self) -> Result<W, Error> {
-        self.generate_hard_links();
-        self.do_finish()
-    }
-
-    fn generate_hard_links(&mut self) {
-        use std::collections::hash_map::Entry::*;
-        let mut inodes = HashMap::new();
-        let num_files = self.files.len();
-        for i in 0..num_files {
-            let file = &mut self.files[i];
-            match inodes.entry((file.deviceno, file.inode)) {
-                Vacant(v) => {
-                    v.insert(i);
-                }
-                Occupied(o) => {
-                    let j = *o.get();
-                    self.files[i].kind.link = Some(self.files[j].id.to_string());
-                    if self.files[j].kind.link.is_none() {
-                        self.files[j].kind.link = Some("original".into());
-                    }
-                }
-            }
-        }
-    }
-
-    fn do_finish(mut self) -> Result<W, Error> {
         let checksum_len = self.toc_checksum_algo.size() as u64;
         let xar = xml::Xar {
             toc: xml::Toc {
