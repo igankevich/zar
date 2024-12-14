@@ -75,12 +75,10 @@ where
         let files2 = list_dir_all(&unpack_dir).unwrap();
         similar_asserts::assert_eq!(files1, files2);
         Ok(())
-    })
-    //.seed(0xe375aaae00000020) // TODO
-    .budget(std::time::Duration::from_secs(5));
+    });
 }
 
-const ALL_CODECS: [&str; 3] = ["none", "gzip", "bzip2"]; // TODO lzma
+const ALL_CODECS: [&str; 3] = ["none", "gzip", "bzip2"];
 
 #[cfg(target_os = "macos")]
 const ALL_CHECKSUM_ALGOS: [&str; 3] = ["sha1", "sha256", "sha512"];

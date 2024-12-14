@@ -11,6 +11,7 @@ jobs:
       TZ: Europe/Berlin
       RUST_BACKTRACE: 1
       SIMILAR_ASSERTS_MAX_STRING_LENGTH: 0
+      ARBTEST_BUDGET_MS: 5000
     steps:
       - name: Checkout
         uses: actions/checkout@v4.1.4
@@ -23,6 +24,7 @@ jobs:
     env:
       TZ: Europe/Berlin
       RUST_BACKTRACE: 1
+      ARBTEST_BUDGET_MS: 5000
     steps:
       - name: Checkout
         uses: actions/checkout@v4.1.4
@@ -36,7 +38,6 @@ jobs:
       options: --cap-add SYS_PTRACE
     env:
       TZ: Europe/Berlin
-      RUST_BACKTRACE: 1
     steps:
       - name: Checkout
         uses: actions/checkout@v4.1.4

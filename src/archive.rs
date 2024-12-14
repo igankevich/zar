@@ -230,7 +230,7 @@ impl<'a, R: Read + Seek> Entry<'a, R> {
                     compression.decoder(self.archive.reader.by_ref().take(data.length)),
                 ))
             }
-            None if file.kind.value != "file"
+            None if file.kind.value == "file"
                 || (file.kind.value == "hardlink"
                     && file.kind.link.as_deref() == Some("original")) =>
             {
