@@ -1,0 +1,49 @@
+[package]
+name = "zar"
+version.workspace = true
+license.workspace = true
+edition = "2021"
+homepage = "https://github.com/igankevich/zar"
+repository = "https://github.com/igankevich/zar"
+documentation = "https://docs.rs/zar"
+readme = "README.md"
+description = "XAR archive reader/writer library. Fuzz-tested against MacOS xar."
+keywords = ["xar", "archive"]
+categories = ["encoding", "filesystem"]
+include = ["**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
+
+[features]
+default = ["rsa"]
+rsa = ["dep:rsa"]
+
+[dependencies]
+base16ct = { version = "0.2.0", features = ["std"], default-features = false }
+bzip2 = "0.4.4"
+chrono = "0.4.38"
+deko = { version = "0.1.0", features = ["flate2", "bzip2", "xz"], default-features = false }
+digest = "0.10.7"
+flate2 = "1.0.35"
+libc = "0.2.168"
+md5 = "0.7.0"
+normalize-path = "0.2.1"
+quick-xml = { version = "0.37.1", features = ["serialize"], default-features = false }
+rsa = { version = "0.9.7", features = ["sha2"], optional = true }
+serde = { version = "1.0.215", features = ["derive"] }
+sha1 = "0.10.6"
+sha2 = "0.10.8"
+xz = "0.1.0"
+
+[dev-dependencies]
+arbitrary = { version = "1.4.1", features = ["derive"] }
+arbtest = "0.3.1"
+random-dir = "0.2.4"
+similar-asserts = "1.6.0"
+tempfile = "3.14.0"
+walkdir = "2.5.0"
+
+[workspace]
+members = [".", "cli"]
+
+[workspace.package]
+version = "0.1.0"
+license = "MIT"
