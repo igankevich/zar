@@ -278,35 +278,6 @@ mod tests {
     use crate::Signer;
 
     #[test]
-    fn xar_read() {
-        let file = File::open("hardlink.xar").unwrap();
-        let mut archive = Archive::new_unsigned(file).unwrap();
-        for i in 0..archive.num_entries() {
-            let entry = archive.entry(i);
-            if let Some(ref data) = entry.file().data {
-                eprintln!("file {:?}", data.encoding.style);
-            }
-        }
-        /*
-        for entry in WalkDir::new("pkgs").into_iter() {
-            let entry = entry.unwrap();
-            if entry.path().metadata().unwrap().is_dir() {
-                continue;
-            }
-            //eprintln!("file {:?}", entry.path());
-            let file = File::open(entry.path()).unwrap();
-            let mut archive = Archive::new(file).unwrap();
-            for i in 0..archive.num_entries() {
-                let entry = archive.entry(i);
-                if let Some(ref data) = entry.file().data {
-                    eprintln!("file {:?}", data.encoding.style);
-                }
-            }
-        }
-        */
-    }
-
-    #[test]
     fn xar_unsigned_write_read() {
         test_xar_write_read(NoSigner, NoVerifier);
     }
