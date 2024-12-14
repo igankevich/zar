@@ -50,7 +50,6 @@ impl<R: Read + Seek> Archive<R> {
         reader.read_exact(&mut checksum_bytes[..])?;
         let checksum = Checksum::new(toc.checksum.algo, &checksum_bytes[..])?;
         let actual_checksum = checksum.compute(&toc_bytes[..]);
-        eprintln!("signature {:?}", toc.signature);
         if checksum != actual_checksum {
             return Err(Error::other("toc checksum mismatch"));
         }
@@ -87,7 +86,6 @@ impl<R: Read + Seek> Archive<R> {
 
     pub fn extract<P: AsRef<Path>>(mut self, dest_dir: P) -> Result<(), Error> {
         use std::collections::hash_map::Entry::*;
-        eprintln!("extract {}", self.num_entries());
         let dest_dir = dest_dir.as_ref();
         let mut dirs = Vec::new();
         // id -> path
@@ -115,7 +113,6 @@ impl<R: Read + Seek> Archive<R> {
             }
             match entry.reader()? {
                 Some(mut reader) => {
-                    eprintln!("extracting {:?}", dest_file);
                     let mut file = File::create(&dest_file)?;
                     std::io::copy(&mut reader, &mut file)?;
                     file.set_permissions(Permissions::from_mode(entry.file().mode.into()))?;
@@ -176,7 +173,6 @@ impl<R: Read + Seek> Archive<R> {
         }
         for (id, dest_file) in hard_links.into_iter() {
             let original = file_paths.get(&id).unwrap();
-            eprintln!("hard link {:?} -> {:?}", original, dest_file);
             std::fs::hard_link(original, &dest_file)?;
         }
         dirs.sort_unstable_by(|a, b| b.0.cmp(&a.0));
@@ -213,7 +209,6 @@ pub struct Entry<'a, R: Read + Seek> {
 
 impl<'a, R: Read + Seek> Entry<'a, R> {
     pub fn reader(&mut self) -> Result<Option<XarDecoder<Take<&mut R>>>, Error> {
-        eprintln!("reader {}: {:?}", self.i, self.archive.files[self.i].data);
         let file = &self.archive.files[self.i];
         // TODO clone
         match file.data.clone() {

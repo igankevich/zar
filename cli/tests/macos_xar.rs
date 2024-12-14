@@ -10,13 +10,11 @@ use tempfile::TempDir;
 use test_bin::get_test_bin;
 
 #[test]
-#[cfg_attr(any(miri, not(target_os = "macos")), ignore)]
 fn we_archive_they_extract() {
     archive_extract(|| get_test_bin("zar"), || Command::new("xar"));
 }
 
 #[test]
-#[cfg_attr(any(miri, not(target_os = "macos")), ignore)]
 fn they_archive_we_extract() {
     archive_extract(|| Command::new("xar"), || get_test_bin("zar"));
 }
@@ -41,13 +39,13 @@ where
             .file_types([
                 random_dir::FileType::Regular,
                 random_dir::FileType::Directory,
+                // On Linux `lchmod` is not supported.
+                #[cfg(not(target_os = "linux"))]
                 random_dir::FileType::Symlink,
                 random_dir::FileType::HardLink,
-                // Socket doesn't work with MacOS's xar.
-                #[cfg(not(target_os = "macos"))]
-                random_dir::FileType::Socket,
                 random_dir::FileType::Fifo,
-                // character and block devices are hard to test on macos
+                // Sockets don't work with MacOS's xar.
+                // Character and block devices are hard to test on MacOS.
             ])
             .create(u)?;
         unsafe { libc::sync() };

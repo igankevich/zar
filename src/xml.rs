@@ -34,13 +34,20 @@ pub struct Xar {
 }
 
 impl Xar {
+    #[cfg(debug_assertions)]
     pub fn read<R: Read>(reader: R) -> Result<Self, Error> {
         let mut reader = ZlibDecoder::new(reader);
-        //let reader = BufReader::new(reader);
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes)?;
         eprintln!("read toc {}", String::from_utf8_lossy(&bytes[..]));
         let reader = BufReader::new(std::io::Cursor::new(bytes));
+        from_reader(reader).map_err(Error::other)
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub fn read<R: Read>(reader: R) -> Result<Self, Error> {
+        let reader = ZlibDecoder::new(reader);
+        let reader = BufReader::new(reader);
         from_reader(reader).map_err(Error::other)
     }
 
@@ -53,6 +60,7 @@ impl Xar {
         let mut toc_uncompressed = String::new();
         toc_uncompressed.push_str(XML_DECLARATION);
         to_writer(&mut toc_uncompressed, self).map_err(Error::other)?;
+        #[cfg(debug_assertions)]
         eprintln!("write toc {}", toc_uncompressed);
         let toc_len_uncompressed = toc_uncompressed.as_bytes().len();
         let mut encoder = ZlibEncoder::new(Vec::new(), flate2::Compression::best());
@@ -63,7 +71,6 @@ impl Xar {
             toc_len_uncompressed: toc_len_uncompressed as u64,
             checksum_algo,
         };
-        eprintln!("write header {:?}", header);
         header.write(writer.by_ref())?;
         writer.write_all(&toc_compressed)?;
         let checksum = Checksum::new_from_data(checksum_algo, &toc_compressed);

@@ -3,6 +3,14 @@ name = "zar-cli"
 version.workspace = true
 edition = "2021"
 license.workspace = true
+homepage = "https://github.com/igankevich/zar"
+repository = "https://github.com/igankevich/zar"
+documentation = "https://docs.rs/zar-cli"
+readme = "../README.md"
+description = "A command-line utility for reading and writing MacOS XAR files."
+keywords = ["bom", "bill-of-materials", "mkbom", "lsbom"]
+categories = ["encoding", "filesystem", "command-line-utilities"]
+include = ["**/*.rs", "Cargo.toml", "../README.md", "LICENSE"]
 
 [[bin]]
 name = "zar"
