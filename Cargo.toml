@@ -3,6 +3,14 @@ name = "zar"
 version.workspace = true
 license.workspace = true
 edition = "2021"
+homepage = "https://github.com/igankevich/zar"
+repository = "https://github.com/igankevich/zar"
+documentation = "https://docs.rs/zar"
+readme = "README.md"
+description = "XAR archive reader/writer library. Fuzz-tested against Apple xar."
+keywords = ["xar", "archive"]
+categories = ["encoding", "filesystem"]
+include = ["**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 
 [features]
 default = ["rsa"]

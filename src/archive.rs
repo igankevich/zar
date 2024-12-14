@@ -326,7 +326,8 @@ mod tests {
             let directory = DirBuilder::new().printable_names(true).create(u)?;
             let xar_path = workdir.path().join("test.xar");
             let mut xar = Builder::new(File::create(&xar_path).unwrap(), Some(&signer));
-            xar.append_dir_all(directory.path(), Compression::Gzip).unwrap();
+            xar.append_dir_all(directory.path(), Compression::Gzip)
+                .unwrap();
             let expected_files = xar.files().to_vec();
             xar.finish().unwrap();
             let reader = File::open(&xar_path).unwrap();

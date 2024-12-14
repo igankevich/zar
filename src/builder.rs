@@ -109,8 +109,7 @@ impl<W: Write, S: Signer> Builder<W, S> {
         compression: Compression,
     ) -> Result<(), Error> {
         let path = path.as_ref();
-        let mut walker = path.walk()?;
-        while let Some(entry) = walker.next() {
+        for entry in path.walk()? {
             let entry = entry?;
             let entry_path = entry.path().strip_prefix(path).unwrap().normalize();
             if entry_path == Path::new("") {

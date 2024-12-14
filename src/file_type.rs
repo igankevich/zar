@@ -1,3 +1,5 @@
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::io::Error;
 use std::str::FromStr;
 
@@ -99,11 +101,11 @@ pub enum Hardlink {
     Id(u64),
 }
 
-impl Hardlink {
-    pub fn to_string(&self) -> String {
+impl Display for Hardlink {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
-            Self::Original => "original".to_string(),
-            Self::Id(id) => id.to_string(),
+            Self::Original => f.write_str("original"),
+            Self::Id(id) => write!(f, "{}", id),
         }
     }
 }

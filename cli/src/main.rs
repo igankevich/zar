@@ -46,8 +46,10 @@ struct Args {
     /// File checksum.
     #[arg(long = "file-cksum", default_value = "sha256")]
     file_checksum: ChecksumAlgo,
+    /// Path to a file with DER-encoded RSA private key.
     #[arg(long = "sign")]
     signing_key_file: Option<PathBuf>,
+    /// Path to a file with DER-encoded RSA public key.
     #[arg(long = "verify")]
     verifying_key_file: Option<PathBuf>,
     /// Files.
