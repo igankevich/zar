@@ -14,7 +14,7 @@ pub enum Compression {
     #[default]
     Gzip,
     Bzip2,
-    // TODO lzfse
+    // TODO lzma
 }
 
 impl Compression {
@@ -46,7 +46,7 @@ impl Compression {
 impl From<&str> for Compression {
     fn from(s: &str) -> Self {
         match s {
-            GZIP_MIME_TYPE => Self::Gzip,
+            GZIP_MIME_TYPE | ZLIB_MIME_TYPE => Self::Gzip,
             BZIP2_MIME_TYPE => Self::Bzip2,
             _ => Self::None,
         }
@@ -72,3 +72,4 @@ impl<R: Read> Read for XarDecoder<R> {
 const OCTET_STREAM_MIME_TYPE: &str = "application/octet-stream";
 const GZIP_MIME_TYPE: &str = "application/x-gzip";
 const BZIP2_MIME_TYPE: &str = "application/x-bzip2";
+const ZLIB_MIME_TYPE: &str = "application/zlib";

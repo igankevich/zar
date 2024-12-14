@@ -11,6 +11,7 @@ use sha2::Sha512;
 #[cfg_attr(test, derive(arbitrary::Arbitrary))]
 #[serde(into = "String", try_from = "String")]
 pub enum Checksum {
+    None,
     Md5([u8; MD5_LEN]),
     Sha1([u8; SHA1_LEN]),
     Sha256([u8; SHA256_LEN]),
@@ -21,6 +22,7 @@ impl Checksum {
     pub fn new(algo: ChecksumAlgo, data: &[u8]) -> Result<Self, Error> {
         use ChecksumAlgo::*;
         Ok(match algo {
+            None => Self::None,
             Md5 => Self::Md5(
                 data.try_into()
                     .map_err(|_| Error::other("invalid sha1 length"))?,
@@ -42,6 +44,7 @@ impl Checksum {
 
     pub fn new_from_data(algo: ChecksumAlgo, data: &[u8]) -> Self {
         match algo {
+            ChecksumAlgo::None => Self::None,
             ChecksumAlgo::Md5 => Self::Md5(md5::compute(data).into()),
             ChecksumAlgo::Sha1 => Self::Sha1(Sha1::digest(data).into()),
             ChecksumAlgo::Sha256 => Self::Sha256(Sha256::digest(data).into()),
@@ -51,6 +54,7 @@ impl Checksum {
 
     pub fn compute(&self, data: &[u8]) -> Self {
         match self {
+            Self::None => Self::None,
             Self::Md5(..) => Self::Md5(md5::compute(data).into()),
             Self::Sha1(..) => Self::Sha1(Sha1::digest(data).into()),
             Self::Sha256(..) => Self::Sha256(Sha256::digest(data).into()),
@@ -60,6 +64,7 @@ impl Checksum {
 
     pub fn algo(&self) -> ChecksumAlgo {
         match self {
+            Self::None => ChecksumAlgo::None,
             Self::Md5(..) => ChecksumAlgo::Md5,
             Self::Sha1(..) => ChecksumAlgo::Sha1,
             Self::Sha256(..) => ChecksumAlgo::Sha256,
@@ -104,6 +109,7 @@ impl From<Checksum> for String {
         use base16ct::lower::encode_string;
         use Checksum::*;
         match other {
+            None => String::new(),
             Md5(hash) => encode_string(&hash),
             Sha1(hash) => encode_string(&hash),
             Sha256(hash) => encode_string(&hash),
@@ -115,6 +121,7 @@ impl From<Checksum> for String {
 impl AsRef<[u8]> for Checksum {
     fn as_ref(&self) -> &[u8] {
         match self {
+            Self::None => &[],
             Self::Md5(h) => h.as_ref(),
             Self::Sha1(h) => h.as_ref(),
             Self::Sha256(h) => h.as_ref(),
@@ -126,19 +133,20 @@ impl AsRef<[u8]> for Checksum {
 #[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
 #[cfg_attr(test, derive(arbitrary::Arbitrary, PartialEq, Eq))]
 #[serde(rename_all = "lowercase")]
-#[repr(u32)]
 pub enum ChecksumAlgo {
-    Sha1 = 1,
-    Md5 = 2,
+    None,
+    Sha1,
+    Md5,
     #[default]
-    Sha256 = 3,
-    Sha512 = 4,
+    Sha256,
+    Sha512,
 }
 
 impl ChecksumAlgo {
     pub fn size(self) -> usize {
         use ChecksumAlgo::*;
         match self {
+            None => 0,
             Md5 => MD5_LEN,
             Sha1 => SHA1_LEN,
             Sha256 => SHA256_LEN,
@@ -147,16 +155,33 @@ impl ChecksumAlgo {
     }
 }
 
-impl TryFrom<u32> for ChecksumAlgo {
-    type Error = Error;
-    fn try_from(other: u32) -> Result<Self, Self::Error> {
+impl From<ChecksumAlgo> for (u32, &'static str) {
+    fn from(other: ChecksumAlgo) -> Self {
+        use ChecksumAlgo::*;
         match other {
-            0 => Err(Error::other("no hashing algorithm")),
-            1 => Ok(Self::Sha1),
-            2 => Ok(Self::Md5),
-            3 => Ok(Self::Sha256),
-            4 => Ok(Self::Sha512),
-            other => Err(Error::other(format!("unknown hashing algorithm {}", other))),
+            None => (0, ""),
+            Md5 => (1, ""),
+            Sha1 => (2, ""),
+            Sha256 => (3, "sha256"),
+            Sha512 => (3, "sha512"),
+        }
+    }
+}
+
+impl TryFrom<(u32, String)> for ChecksumAlgo {
+    type Error = Error;
+    fn try_from((code, mut name): (u32, String)) -> Result<Self, Self::Error> {
+        name.make_ascii_lowercase();
+        match (code, name.as_str()) {
+            (0, _) => Ok(Self::None),
+            (1, _) => Ok(Self::Sha1),
+            (2, _) => Ok(Self::Md5),
+            (3, "sha256") => Ok(Self::Sha256),
+            (3, "sha512") => Ok(Self::Sha512),
+            _ => Err(Error::other(format!(
+                "unknown hashing algorithm: code={}, name={}",
+                code, name
+            ))),
         }
     }
 }

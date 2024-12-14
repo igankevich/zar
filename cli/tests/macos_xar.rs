@@ -42,6 +42,7 @@ where
                 // On Linux `lchmod` is not supported.
                 #[cfg(not(target_os = "linux"))]
                 random_dir::FileType::Symlink,
+                #[cfg(not(target_os = "linux"))]
                 random_dir::FileType::HardLink,
                 random_dir::FileType::Fifo,
                 // Sockets don't work with MacOS's xar.
@@ -71,17 +72,26 @@ where
         unsafe { libc::sync() };
         let files1 = list_dir_all(directory.path()).unwrap();
         let files2 = list_dir_all(&unpack_dir).unwrap();
-        similar_asserts::assert_eq!(files1, files2);
+        similar_asserts::assert_eq!(
+            files1,
+            files2,
+            "compression = {compression:?}, \
+            toc_checksum_algo = {toc_checksum_algo:?}, \
+            file_checksum_algo = {file_checksum_algo:?}"
+        );
         Ok(())
     });
 }
 
+//#[cfg(target_os = "macos")]
 const ALL_CODECS: [&str; 3] = ["none", "gzip", "bzip2"];
+//#[cfg(target_os = "linux")]
+//const ALL_CODECS: [&str; 1] = [/*"none", "gzip", "bzip2", */"lzma"];
 
 #[cfg(target_os = "macos")]
 const ALL_CHECKSUM_ALGOS: [&str; 3] = ["sha1", "sha256", "sha512"];
 #[cfg(target_os = "linux")]
-const ALL_CHECKSUM_ALGOS: [&str; 2] = ["md5", "sha1"];
+const ALL_CHECKSUM_ALGOS: [&str; 4] = ["md5", "sha1", "sha256", "sha512"];
 
 fn do_not_truncate_assertions() {
     NO_TRUNCATE.call_once(|| {
