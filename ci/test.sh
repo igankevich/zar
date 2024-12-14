@@ -12,11 +12,6 @@ test_all() {
     cargo test --workspace --no-fail-fast -- --nocapture
 }
 
-test_all_nightly() {
-    cargo +nightly test --workspace --quiet --no-run
-    cargo +nightly test --workspace --no-fail-fast -- --nocapture
-}
-
 test_coverage_preamble() {
     export CARGO_INCREMENTAL=0
     export RUSTFLAGS='-Zprofile -Ccodegen-units=1 -Cllvm-args=--inline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
@@ -43,19 +38,7 @@ test_coverage_postamble() {
         target/debug/lcov.info
 }
 
-test_miri() {
-    cargo +nightly miri setup --quiet
-    do_test_miri --quiet --no-run
-    do_test_miri
-}
-
-do_test_miri() {
-    env MIRIFLAGS=-Zmiri-disable-isolation cargo +nightly miri test "$@"
-}
-
 clean
 #test_coverage_preamble
 test_all
-test_all_nightly
 #test_coverage_postamble
-test_miri

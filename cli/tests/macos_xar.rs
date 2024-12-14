@@ -10,13 +10,13 @@ use tempfile::TempDir;
 use test_bin::get_test_bin;
 
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(any(miri, not(target_os = "macos")), ignore)]
 fn we_archive_they_extract() {
     archive_extract(|| get_test_bin("zar"), || Command::new("xar"));
 }
 
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(any(miri, not(target_os = "macos")), ignore)]
 fn they_archive_we_extract() {
     archive_extract(|| Command::new("xar"), || get_test_bin("zar"));
 }
