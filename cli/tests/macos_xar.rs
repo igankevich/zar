@@ -42,9 +42,8 @@ where
                 // On Linux `lchmod` is not supported.
                 #[cfg(not(target_os = "linux"))]
                 random_dir::FileType::Symlink,
-                #[cfg(not(target_os = "linux"))]
-                random_dir::FileType::HardLink,
                 random_dir::FileType::Fifo,
+                // Hard links are extracted as files.
                 // Sockets don't work with MacOS's xar.
                 // Character and block devices are hard to test on MacOS.
             ])
@@ -73,20 +72,21 @@ where
         let files1 = list_dir_all(directory.path()).unwrap();
         let files2 = list_dir_all(&unpack_dir).unwrap();
         #[cfg(target_os = "macos")]
-        {
+        let (files1, files2) = {
             let mut files1 = files1;
             let mut files2 = files2;
             for (file1, file2) in files1.iter_mut().zip(files2.iter_mut()) {
-                if file1.metadata.mtime != file1.metadata.mtime {
+                if file1.metadata.mtime != file2.metadata.mtime {
                     eprintln!(
                         "WARNING: wrong mtime: {} != {}",
                         file1.metadata.mtime, file1.metadata.mtime
                     );
-                    file2.metadata.mtime = 0;
+                    file1.metadata.mtime = 0;
                     file2.metadata.mtime = 0;
                 }
             }
-        }
+            (files1, files2)
+        };
         similar_asserts::assert_eq!(
             files1,
             files2,
