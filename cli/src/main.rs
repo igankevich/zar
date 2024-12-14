@@ -172,6 +172,7 @@ enum Compression {
     Gzip,
     Bzip2,
     Lzma,
+    Xz,
 }
 
 impl FromStr for Compression {
@@ -183,6 +184,7 @@ impl FromStr for Compression {
             "gzip" => Ok(Compression::Gzip),
             "bzip2" => Ok(Compression::Bzip2),
             "lzma" => Ok(Compression::Lzma),
+            "xz" => Ok(Compression::Xz),
             _ => Err(Error::other("invalid compression")),
         }
     }
@@ -195,6 +197,7 @@ impl From<Compression> for zar::Compression {
             Compression::Gzip => zar::Compression::Gzip,
             Compression::Bzip2 => zar::Compression::Bzip2,
             Compression::Lzma => panic!("lzma is not supported"),
+            Compression::Xz => zar::Compression::Xz,
         }
     }
 }
