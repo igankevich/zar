@@ -116,10 +116,7 @@ impl<R: Read + Seek> Archive<R> {
                     let mut file = File::create(&dest_file)?;
                     std::io::copy(&mut reader, &mut file)?;
                     file.set_permissions(Permissions::from_mode(entry.file().mode.into()))?;
-                    //file.set_modified(entry.file().mtime.0)?;
-                    drop(file);
-                    let path = path_to_c_string(dest_file)?;
-                    set_file_modified_time(&path, entry.file().mtime.0)?;
+                    file.set_modified(entry.file().mtime.0)?;
                 }
                 None => match file_type {
                     FileType::File => {
