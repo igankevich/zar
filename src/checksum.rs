@@ -133,13 +133,14 @@ impl AsRef<[u8]> for Checksum {
 #[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
 #[cfg_attr(test, derive(arbitrary::Arbitrary, PartialEq, Eq))]
 #[serde(rename_all = "lowercase")]
+#[repr(u32)]
 pub enum ChecksumAlgo {
-    None,
-    Sha1,
-    Md5,
+    None = 0,
+    Sha1 = 1,
+    Md5 = 2,
     #[default]
-    Sha256,
-    Sha512,
+    Sha256 = 3,
+    Sha512 = 4,
 }
 
 impl ChecksumAlgo {
@@ -155,33 +156,16 @@ impl ChecksumAlgo {
     }
 }
 
-impl From<ChecksumAlgo> for (u32, &'static str) {
-    fn from(other: ChecksumAlgo) -> Self {
-        use ChecksumAlgo::*;
-        match other {
-            None => (0, ""),
-            Sha1 => (1, "sha1"),
-            Md5 => (2, "md5"),
-            Sha256 => (3, "sha256"),
-            Sha512 => (4, "sha512"),
-        }
-    }
-}
-
-impl TryFrom<(u32, String)> for ChecksumAlgo {
+impl TryFrom<u32> for ChecksumAlgo {
     type Error = Error;
-    fn try_from((code, mut name): (u32, String)) -> Result<Self, Self::Error> {
-        name.make_ascii_lowercase();
-        match (code, name.as_str()) {
-            (0, _) => Ok(Self::None),
-            (1, _) => Ok(Self::Sha1),
-            (2, _) => Ok(Self::Md5),
-            (3, "sha256") => Ok(Self::Sha256),
-            (4, "sha512") => Ok(Self::Sha512),
-            _ => Err(Error::other(format!(
-                "unknown hashing algorithm: code={}, name={}",
-                code, name
-            ))),
+    fn try_from(code: u32) -> Result<Self, Self::Error> {
+        match code {
+            0 => Ok(Self::None),
+            1 => Ok(Self::Sha1),
+            2 => Ok(Self::Md5),
+            3 => Ok(Self::Sha256),
+            4 => Ok(Self::Sha512),
+            _ => Err(Error::other("unknown hashing algorithm")),
         }
     }
 }

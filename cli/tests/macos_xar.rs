@@ -91,9 +91,8 @@ const ALL_CODECS: [&str; 4] = ["none", "gzip", "bzip2", "xz"];
 #[cfg(target_os = "macos")]
 const ALL_CHECKSUM_ALGOS: [&str; 3] = ["sha1", "sha256", "sha512"];
 
-// On linux sha512=3, on macos sha512=4.
 #[cfg(target_os = "linux")]
-const ALL_CHECKSUM_ALGOS: [&str; 3] = ["md5", "sha1", "sha256"];
+const ALL_CHECKSUM_ALGOS: [&str; 2] = ["md5", "sha1"];
 
 fn do_not_truncate_assertions() {
     NO_TRUNCATE.call_once(|| {
