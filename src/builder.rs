@@ -3,8 +3,6 @@ use std::fs::read_link;
 use std::fs::symlink_metadata;
 use std::io::Error;
 use std::io::Write;
-use std::ops::Deref;
-use std::ops::DerefMut;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::SystemTime;
@@ -43,10 +41,17 @@ impl Options {
         self
     }
 
-    pub fn create<W: Write, S: Signer>(self, writer: W, signer: &S) -> Builder<W> {
+    pub fn create<W: Write, S: Signer>(self, writer: W, signer: Option<S>) -> Builder<W, S> {
+        let toc_checksum_len = self.toc_checksum_algo.size();
+        let offset = if let Some(ref signer) = signer {
+            toc_checksum_len + signer.signature_len()
+        } else {
+            toc_checksum_len
+        };
         Builder {
-            offset: (self.toc_checksum_algo.size() + signer.signature_len()) as u64,
             writer,
+            signer,
+            offset: offset as u64,
             file_checksum_algo: self.file_checksum_algo,
             toc_checksum_algo: self.toc_checksum_algo,
             files: Default::default(),
@@ -61,8 +66,9 @@ impl Default for Options {
     }
 }
 
-pub struct Builder<W: Write> {
+pub struct Builder<W: Write, S: Signer> {
     writer: W,
+    signer: Option<S>,
     file_checksum_algo: ChecksumAlgo,
     toc_checksum_algo: ChecksumAlgo,
     files: Vec<xml::File>,
@@ -70,13 +76,9 @@ pub struct Builder<W: Write> {
     offset: u64,
 }
 
-impl<W: Write> Builder<W> {
-    pub fn options() -> Options {
-        Options::new()
-    }
-
-    pub fn new(writer: W) -> Self {
-        Options::new().create(writer, &NoSigner)
+impl<W: Write, S: Signer> Builder<W, S> {
+    pub fn new(writer: W, signer: Option<S>) -> Self {
+        Options::new().create(writer, signer)
     }
 
     pub fn files(&self) -> &[xml::File] {
@@ -200,7 +202,7 @@ impl<W: Write> Builder<W> {
 
     pub fn finish(mut self) -> Result<W, Error> {
         self.generate_hard_links();
-        self.do_finish(&NoSigner)
+        self.do_finish()
     }
 
     fn generate_hard_links(&mut self) {
@@ -224,9 +226,8 @@ impl<W: Write> Builder<W> {
         }
     }
 
-    fn do_finish<S: Signer>(mut self, signer: &S) -> Result<W, Error> {
+    fn do_finish(mut self) -> Result<W, Error> {
         let checksum_len = self.toc_checksum_algo.size() as u64;
-        let signature_len = signer.signature_len();
         let xar = xml::Xar {
             toc: xml::Toc {
                 checksum: xml::TocChecksum {
@@ -236,10 +237,10 @@ impl<W: Write> Builder<W> {
                 },
                 files: self.files,
                 // http://users.wfu.edu/cottrell/productsign/productsign_linux.html
-                signature: (signature_len != 0).then_some(xml::Signature {
+                signature: self.signer.as_ref().map(|signer| xml::Signature {
                     style: signer.signature_style().into(),
                     offset: checksum_len,
-                    size: signature_len as u64,
+                    size: signer.signature_len() as u64,
                     key_info: xml::KeyInfo {
                         data: xml::X509Data {
                             // TODO certs
@@ -251,7 +252,11 @@ impl<W: Write> Builder<W> {
             },
         };
         // write header and toc
-        xar.write(self.writer.by_ref(), self.toc_checksum_algo, signer)?;
+        xar.write(
+            self.writer.by_ref(),
+            self.toc_checksum_algo,
+            self.signer.as_ref(),
+        )?;
         for content in self.contents.into_iter() {
             self.writer.write_all(&content)?;
         }
@@ -267,33 +272,8 @@ impl<W: Write> Builder<W> {
     }
 }
 
-pub struct SignedBuilder<W: Write>(Builder<W>);
-
-impl<W: Write> SignedBuilder<W> {
-    pub fn new<S: Signer>(writer: W, signer: &S) -> Self {
-        Self(Options::new().create(writer, signer))
-    }
-
-    pub fn sign<S: Signer>(self, signer: &S) -> Result<W, Error> {
-        self.0.do_finish(signer)
-    }
-}
-
-impl<W: Write> Deref for SignedBuilder<W> {
-    type Target = Builder<W>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<W: Write> DerefMut for SignedBuilder<W> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
 // A stub to produce unsigned archives.
-pub(crate) struct NoSigner;
+pub struct NoSigner;
 
 impl Signer for NoSigner {
     fn sign(&self, _data: &[u8]) -> Result<Vec<u8>, Error> {

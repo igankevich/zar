@@ -14,8 +14,11 @@ use crate::Verifier;
 
 pub type RsaSigner = SigningKey<Sha256>;
 pub type RsaVerifier = VerifyingKey<Sha256>;
+pub use rsa::pkcs1::DecodeRsaPrivateKey;
+pub use rsa::pkcs1::DecodeRsaPublicKey;
 pub use rsa::signature::Keypair as RsaKeypair;
 pub use rsa::RsaPrivateKey;
+pub use rsa::RsaPublicKey;
 
 impl Signer for RsaSigner {
     fn sign(&self, data: &[u8]) -> Result<Vec<u8>, std::io::Error> {

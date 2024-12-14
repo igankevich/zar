@@ -6,6 +6,8 @@ use std::process::ExitCode;
 use std::str::FromStr;
 
 use clap::Parser;
+use zar::DecodeRsaPrivateKey;
+use zar::DecodeRsaPublicKey;
 
 #[derive(Parser)]
 #[clap(arg_required_else_help = true, about = "XAR archiver and unarchiver")]
@@ -44,6 +46,10 @@ struct Args {
     /// File checksum.
     #[arg(long = "file-cksum", default_value = "sha256")]
     file_checksum: ChecksumAlgo,
+    #[arg(long = "sign")]
+    signing_key_file: Option<PathBuf>,
+    #[arg(long = "verify")]
+    verifying_key_file: Option<PathBuf>,
     /// Files.
     #[arg(
         trailing_var_arg = true,
@@ -105,7 +111,18 @@ fn do_main() -> Result<ExitCode, Error> {
 fn create(args: Args) -> Result<ExitCode, Error> {
     let compression: zar::Compression = args.compression()?.into();
     let file = File::create(&args.file_name)?;
-    let mut builder = zar::Builder::new(file);
+    let options = zar::Options::new()
+        .toc_checksum_algo(args.toc_checksum.into())
+        .file_checksum_algo(args.file_checksum.into());
+    let mut builder = match args.signing_key_file {
+        Some(ref signing_key_file) => {
+            let private_key =
+                zar::RsaPrivateKey::read_pkcs1_der_file(signing_key_file).map_err(Error::other)?;
+            let signer = zar::RsaSigner::new(private_key);
+            options.create(file, Some(signer))
+        }
+        None => options.create(file, None),
+    };
     for path in args.paths.iter() {
         builder.append_dir_all(path, compression)?;
     }
@@ -123,7 +140,16 @@ fn extract(args: Args) -> Result<ExitCode, Error> {
         .map(|x| x.as_path())
         .unwrap_or(Path::new("."));
     let file = File::open(&args.file_name)?;
-    let archive = zar::Archive::new(file)?;
+    let verifier = match args.verifying_key_file {
+        Some(ref verifying_key_file) => {
+            let public_key =
+                zar::RsaPublicKey::read_pkcs1_der_file(verifying_key_file).map_err(Error::other)?;
+            let verifier = zar::RsaVerifier::new(public_key);
+            Some(verifier)
+        }
+        None => None,
+    };
+    let archive = zar::Archive::new(file, verifier.as_ref())?;
     archive.extract(dest_dir)?;
     Ok(ExitCode::SUCCESS)
 }

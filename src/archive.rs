@@ -8,8 +8,6 @@ use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Take;
-use std::ops::Deref;
-use std::ops::DerefMut;
 use std::os::unix::fs::symlink;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixDatagram;
@@ -37,11 +35,11 @@ pub struct Archive<R: Read + Seek> {
 }
 
 impl<R: Read + Seek> Archive<R> {
-    pub fn new(reader: R) -> Result<Self, Error> {
-        Self::do_new::<NoVerifier>(reader, None)
+    pub fn new_unsigned(reader: R) -> Result<Self, Error> {
+        Self::new::<NoVerifier>(reader, None)
     }
 
-    fn do_new<V: Verifier>(mut reader: R, verifier: Option<&V>) -> Result<Self, Error> {
+    pub fn new<V: Verifier>(mut reader: R, verifier: Option<&V>) -> Result<Self, Error> {
         let header = Header::read(&mut reader)?;
         let mut toc_bytes = vec![0_u8; header.toc_len_compressed as usize];
         reader.read_exact(&mut toc_bytes[..])?;
@@ -252,30 +250,8 @@ impl<'a, R: Read + Seek> Entry<'a, R> {
     }
 }
 
-pub struct SignedArchive<R: Read + Seek>(Archive<R>);
-
-impl<R: Read + Seek> SignedArchive<R> {
-    pub fn new<V: Verifier>(reader: R, verifier: &V) -> Result<Self, Error> {
-        let archive = Archive::do_new(reader, Some(verifier))?;
-        Ok(Self(archive))
-    }
-}
-
-impl<R: Read + Seek> Deref for SignedArchive<R> {
-    type Target = Archive<R>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<R: Read + Seek> DerefMut for SignedArchive<R> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
 // A stub to read unsigned archives.
-pub(crate) struct NoVerifier;
+pub struct NoVerifier;
 
 impl Verifier for NoVerifier {
     fn verify(&self, _data: &[u8], _signature: &[u8]) -> Result<(), Error> {
@@ -296,11 +272,11 @@ mod tests {
     use walkdir::WalkDir;
 
     use super::*;
+    use crate::Builder;
     use crate::NoSigner;
     use crate::RsaKeypair;
     use crate::RsaPrivateKey;
     use crate::RsaSigner;
-    use crate::SignedBuilder;
     use crate::Signer;
 
     #[test]
@@ -350,7 +326,7 @@ mod tests {
         arbtest(|u| {
             let directory = DirBuilder::new().printable_names(true).create(u)?;
             let xar_path = workdir.path().join("test.xar");
-            let mut xar = SignedBuilder::new(File::create(&xar_path).unwrap(), &signer);
+            let mut xar = Builder::new(File::create(&xar_path).unwrap(), Some(&signer));
             for entry in WalkDir::new(directory.path()).into_iter() {
                 let entry = entry.unwrap();
                 let entry_path = entry
@@ -370,7 +346,7 @@ mod tests {
                 .unwrap();
             }
             let expected_files = xar.files().to_vec();
-            xar.sign(&signer).unwrap();
+            xar.finish().unwrap();
             let reader = File::open(&xar_path).unwrap();
             let mut xar_archive = SignedArchive::new(reader, &verifier).unwrap();
             let mut actual_files = Vec::new();

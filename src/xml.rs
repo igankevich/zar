@@ -48,7 +48,7 @@ impl Xar {
         &self,
         mut writer: W,
         checksum_algo: ChecksumAlgo,
-        signer: &S,
+        signer: Option<&S>,
     ) -> Result<(), Error> {
         let mut toc_uncompressed = String::new();
         toc_uncompressed.push_str(XML_DECLARATION);
@@ -70,10 +70,12 @@ impl Xar {
         // heap starts
         debug_assert!(checksum.as_ref().len() == checksum_algo.size());
         writer.write_all(checksum.as_ref())?;
-        let signature = signer
-            .sign(checksum.as_ref())
-            .map_err(|_| Error::other("failed to sign"))?;
-        writer.write_all(&signature)?;
+        if let Some(signer) = signer {
+            let signature = signer
+                .sign(checksum.as_ref())
+                .map_err(|_| Error::other("failed to sign"))?;
+            writer.write_all(&signature)?;
+        }
         Ok(())
     }
 }
