@@ -160,8 +160,8 @@ impl From<ChecksumAlgo> for (u32, &'static str) {
         use ChecksumAlgo::*;
         match other {
             None => (0, ""),
-            Md5 => (1, "md5"),
-            Sha1 => (2, "sha1"),
+            Sha1 => (1, "sha1"),
+            Md5 => (2, "md5"),
             Sha256 => (3, "sha256"),
             Sha512 => (3, "sha512"),
         }

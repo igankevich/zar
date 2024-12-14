@@ -59,7 +59,7 @@ impl Header {
 
     pub fn write<W: Write>(&self, mut writer: W) -> Result<(), Error> {
         let (checksum_algo, checksum_algo_name): (u32, &str) = self.checksum_algo.into();
-        let (header_len, padding) = if checksum_algo != 0 {
+        let (header_len, padding) = if checksum_algo == CHECKSUM_ALGO_OTHER {
             // +1 for NUL byte
             let name_len = checksum_algo_name.len() + 1;
             let rem = name_len % ALIGN;
