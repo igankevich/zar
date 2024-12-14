@@ -31,6 +31,16 @@ RUN cargo install --quiet --no-default-features --features native-certs cargo-de
 RUN curl --location --silent --fail --output /usr/local/bin/shfmt https://github.com/mvdan/sh/releases/download/v3.8.0/shfmt_v3.8.0_linux_amd64 && \
     chmod +x /usr/local/bin/shfmt
 
+RUN git clone https://github.com/mackyle/xar /tmp/xar \
+    && cd /tmp/xar/xar \
+    && sed -i -e 's/OpenSSL_add_all_ciphers/CRYPTO_free/g' configure.ac \
+    && autoconf \
+    && ./configure --prefix=/usr \
+    && make \
+    && make install \
+    && cd /tmp \
+    && rm -rf /tmp/xar
+
 COPY --from=ghcr.io/staex-io/cijail:latest / /usr/local
 
 LABEL org.opencontainers.image.source=https://github.com/igankevich/zar
