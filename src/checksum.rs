@@ -163,7 +163,7 @@ impl From<ChecksumAlgo> for (u32, &'static str) {
             Sha1 => (1, "sha1"),
             Md5 => (2, "md5"),
             Sha256 => (3, "sha256"),
-            Sha512 => (3, "sha512"),
+            Sha512 => (4, "sha512"),
         }
     }
 }
@@ -177,7 +177,7 @@ impl TryFrom<(u32, String)> for ChecksumAlgo {
             (1, _) => Ok(Self::Sha1),
             (2, _) => Ok(Self::Md5),
             (3, "sha256") => Ok(Self::Sha256),
-            (3, "sha512") => Ok(Self::Sha512),
+            (4, "sha512") => Ok(Self::Sha512),
             _ => Err(Error::other(format!(
                 "unknown hashing algorithm: code={}, name={}",
                 code, name
