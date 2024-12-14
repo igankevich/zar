@@ -7,6 +7,7 @@ use deko::write::AnyEncoder;
 use deko::write::Compression as DekoCompression;
 use deko::Format;
 use flate2::read::ZlibDecoder;
+use xz::read::XzDecoder;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
 pub enum Compression {
@@ -14,7 +15,7 @@ pub enum Compression {
     #[default]
     Gzip,
     Bzip2,
-    // TODO lzma
+    Xz,
 }
 
 impl Compression {
@@ -23,6 +24,7 @@ impl Compression {
             Self::None => OCTET_STREAM_MIME_TYPE,
             Self::Gzip => GZIP_MIME_TYPE,
             Self::Bzip2 => BZIP2_MIME_TYPE,
+            Self::Xz => XZ_MIME_TYPE,
         }
     }
 
@@ -31,6 +33,7 @@ impl Compression {
             Self::None => AnyEncoder::new(writer, Format::Verbatim, DekoCompression::Best),
             Self::Gzip => AnyEncoder::new(writer, Format::Zlib, DekoCompression::Best),
             Self::Bzip2 => AnyEncoder::new(writer, Format::Bz, DekoCompression::Best),
+            Self::Xz => AnyEncoder::new(writer, Format::Xz, DekoCompression::Best),
         }
     }
 
@@ -39,6 +42,7 @@ impl Compression {
             Self::None => XarDecoder::OctetStream(reader),
             Self::Gzip => XarDecoder::Gzip(ZlibDecoder::new(reader)),
             Self::Bzip2 => XarDecoder::Bzip2(BzDecoder::new(reader)),
+            Self::Xz => XarDecoder::Xz(XzDecoder::new(reader)),
         }
     }
 }
@@ -48,6 +52,7 @@ impl From<&str> for Compression {
         match s {
             GZIP_MIME_TYPE | ZLIB_MIME_TYPE => Self::Gzip,
             BZIP2_MIME_TYPE => Self::Bzip2,
+            XZ_MIME_TYPE => Self::Xz,
             _ => Self::None,
         }
     }
@@ -57,6 +62,7 @@ pub enum XarDecoder<R: Read> {
     OctetStream(R),
     Gzip(ZlibDecoder<R>),
     Bzip2(BzDecoder<R>),
+    Xz(XzDecoder<R>),
 }
 
 impl<R: Read> Read for XarDecoder<R> {
@@ -65,6 +71,7 @@ impl<R: Read> Read for XarDecoder<R> {
             Self::OctetStream(r) => r.read(buf),
             Self::Gzip(r) => r.read(buf),
             Self::Bzip2(r) => r.read(buf),
+            Self::Xz(r) => r.read(buf),
         }
     }
 }
@@ -73,3 +80,4 @@ const OCTET_STREAM_MIME_TYPE: &str = "application/octet-stream";
 const GZIP_MIME_TYPE: &str = "application/x-gzip";
 const BZIP2_MIME_TYPE: &str = "application/x-bzip2";
 const ZLIB_MIME_TYPE: &str = "application/zlib";
+const XZ_MIME_TYPE: &str = "application/x-xz";
