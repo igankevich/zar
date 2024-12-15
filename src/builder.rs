@@ -1,8 +1,6 @@
 use std::collections::hash_map::Entry::Occupied;
 use std::collections::hash_map::Entry::Vacant;
 use std::collections::HashMap;
-use std::fs::read_link;
-use std::fs::symlink_metadata;
 use std::io::Error;
 use std::io::Write;
 use std::path::Path;
@@ -14,7 +12,6 @@ use normalize_path::NormalizePath;
 use crate::xml;
 use crate::ChecksumAlgo;
 use crate::Compression;
-use crate::FileStatus;
 use crate::FileType;
 use crate::HardLink;
 use crate::Signer;
@@ -128,95 +125,27 @@ impl<W: Write, S: Signer> Builder<W, S> {
         compression: Compression,
     ) -> Result<(), Error> {
         let path = path.as_ref();
-        let metadata = symlink_metadata(path)?;
-        let (has_contents, link) = if metadata.is_file() {
-            (true, None)
-        } else if metadata.is_symlink() {
-            // resolve symlink
-            let (has_contents, broken) = match path.metadata() {
-                Ok(target_meta) => (target_meta.is_file(), false),
-                Err(_) => {
-                    // broken symlink
-                    (false, true)
-                }
-            };
-            let target = read_link(path)?;
-            let target = target.strip_prefix(prefix).unwrap_or(target.as_path());
-            let link = Some(xml::Link {
-                kind: if broken { "broken" } else { "file" }.into(),
-                target: target.to_path_buf(),
-            });
-            (has_contents, link)
-        } else {
-            (false, None)
-        };
-        let contents = if has_contents {
-            std::fs::read(path)?
-        } else {
-            Vec::new()
-        };
-        let mut status: FileStatus = metadata.into();
-        status.name = archive_path;
-        self.append_raw(status, &contents, link, compression)
+        let (file, archived_contents) = xml::File::new(
+            self.files.len() as u64 + 1,
+            prefix,
+            path,
+            archive_path,
+            compression,
+            self.file_checksum_algo,
+            self.offset,
+        )?;
+        self.append_raw(file, archived_contents)
     }
 
-    pub fn append_raw<C: AsRef<[u8]>>(
+    pub fn append_raw(
         &mut self,
-        status: FileStatus,
-        contents: C,
-        link: Option<xml::Link>,
-        compression: Compression,
+        mut file: xml::File,
+        archived_contents: Vec<u8>,
     ) -> Result<(), Error> {
-        let contents = contents.as_ref();
-        let (data, archived) = if !contents.is_empty() {
-            let extracted_checksum = self.file_checksum_algo.hash(contents);
-            let mut encoder = compression.encoder(Vec::new())?;
-            encoder.write_all(contents)?;
-            let archived = encoder.finish()?;
-            let archived_checksum = self.file_checksum_algo.hash(&archived);
-            let data = xml::Data {
-                archived_checksum: archived_checksum.into(),
-                extracted_checksum: extracted_checksum.into(),
-                encoding: xml::Encoding {
-                    style: compression.as_str().into(),
-                },
-                size: contents.len() as u64,
-                length: archived.len() as u64,
-                offset: self.offset,
-            };
-            (Some(data), archived)
-        } else {
-            (None, Vec::new())
-        };
-        let device =
-            if status.kind == FileType::CharacterSpecial || status.kind == FileType::BlockSpecial {
-                Some(xml::Device {
-                    major: unsafe { libc::major(status.rdev as _) } as _,
-                    minor: unsafe { libc::minor(status.rdev as _) } as _,
-                })
-            } else {
-                None
-            };
-        let mut file = xml::File::new(self.files.len() as u64 + 1, status, data, link, device);
-        // handle hard links
-        match self.inodes.entry((file.deviceno, file.inode)) {
-            Vacant(v) => {
-                let i = self.files.len();
-                v.insert(i);
-            }
-            Occupied(o) => {
-                let i = *o.get();
-                let original_file = &mut self.files[i];
-                file.kind = FileType::HardLink(HardLink::Id(original_file.id));
-                // Do not overwrite original file type, if it is already `HardLink`.
-                if !matches!(original_file.kind, FileType::HardLink(..)) {
-                    original_file.kind = FileType::HardLink(HardLink::Original);
-                }
-            }
-        }
-        self.offset += archived.len() as u64;
+        self.handle_hard_links(&mut file);
+        self.offset += archived_contents.len() as u64;
         self.files.push(file);
-        self.contents.push(archived);
+        self.contents.push(archived_contents);
         Ok(())
     }
 
@@ -263,6 +192,24 @@ impl<W: Write, S: Signer> Builder<W, S> {
 
     pub fn get(&self) -> &W {
         &self.writer
+    }
+
+    fn handle_hard_links(&mut self, file: &mut xml::File) {
+        match self.inodes.entry((file.deviceno, file.inode)) {
+            Vacant(v) => {
+                let i = self.files.len();
+                v.insert(i);
+            }
+            Occupied(o) => {
+                let i = *o.get();
+                let original_file = &mut self.files[i];
+                file.kind = FileType::HardLink(HardLink::Id(original_file.id));
+                // Do not overwrite original file type if it is already `HardLink`.
+                if !matches!(original_file.kind, FileType::HardLink(..)) {
+                    original_file.kind = FileType::HardLink(HardLink::Original);
+                }
+            }
+        }
     }
 }
 

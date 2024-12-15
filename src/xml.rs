@@ -1,9 +1,12 @@
 use std::collections::VecDeque;
+use std::fs::read_link;
+use std::fs::symlink_metadata;
 use std::io::BufReader;
 use std::io::Error;
 use std::io::ErrorKind;
 use std::io::Read;
 use std::io::Write;
+use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 use std::time::SystemTime;
@@ -23,8 +26,8 @@ use serde::Serializer;
 
 use crate::Checksum;
 use crate::ChecksumAlgo;
+use crate::Compression;
 use crate::FileMode;
-use crate::FileStatus;
 use crate::FileType;
 use crate::Header;
 use crate::Signer;
@@ -137,30 +140,90 @@ pub struct File {
 }
 
 impl File {
-    pub fn new(
+    pub fn new<P1: AsRef<Path>, P2: AsRef<Path>>(
         id: u64,
-        status: FileStatus,
-        data: Option<Data>,
-        link: Option<Link>,
-        device: Option<Device>,
-    ) -> Self {
-        Self {
+        prefix: P1,
+        path: P2,
+        name: PathBuf,
+        compression: Compression,
+        checksum_algo: ChecksumAlgo,
+        offset: u64,
+    ) -> Result<(Self, Vec<u8>), Error> {
+        use std::os::unix::fs::MetadataExt;
+        let path = path.as_ref();
+        let prefix = prefix.as_ref();
+        let metadata = symlink_metadata(path)?;
+        let kind: FileType = metadata.file_type().into();
+        let (has_contents, link) = if metadata.is_file() {
+            (true, None)
+        } else if metadata.is_symlink() {
+            // resolve symlink
+            let (has_contents, link_kind) = match path.metadata() {
+                Ok(target_meta) => (target_meta.is_file(), SYMLINK_FILE),
+                Err(_) => {
+                    // broken symlink
+                    (false, SYMLINK_BROKEN)
+                }
+            };
+            let target = read_link(path)?;
+            let target = target.strip_prefix(prefix).unwrap_or(target.as_path());
+            let link = Some(Link {
+                kind: link_kind.into(),
+                target: target.to_path_buf(),
+            });
+            (has_contents, link)
+        } else {
+            (false, None)
+        };
+        let contents = if has_contents {
+            std::fs::read(path)?
+        } else {
+            Vec::new()
+        };
+        let (data, archived) = if !contents.is_empty() {
+            let extracted_checksum = checksum_algo.hash(&contents);
+            let mut encoder = compression.encoder(Vec::new())?;
+            encoder.write_all(&contents)?;
+            let archived = encoder.finish()?;
+            let archived_checksum = checksum_algo.hash(&archived);
+            let data = Data {
+                archived_checksum: archived_checksum.into(),
+                extracted_checksum: extracted_checksum.into(),
+                encoding: compression.into(),
+                size: contents.len() as u64,
+                length: archived.len() as u64,
+                offset,
+            };
+            (Some(data), archived)
+        } else {
+            (None, Vec::new())
+        };
+        let file = Self {
             id,
-            name: status.name,
-            kind: status.kind,
-            inode: status.inode,
-            deviceno: status.dev,
-            mode: status.mode,
-            uid: status.uid,
-            gid: status.gid,
-            atime: status.atime,
-            mtime: status.mtime,
-            ctime: status.ctime,
+            name,
+            kind,
+            inode: metadata.ino(),
+            deviceno: metadata.dev(),
+            mode: metadata.mode().into(),
+            uid: metadata.uid(),
+            gid: metadata.gid(),
+            atime: (metadata.atime() as u64).try_into().unwrap_or_default(),
+            mtime: (metadata.mtime() as u64).try_into().unwrap_or_default(),
+            ctime: (metadata.ctime() as u64).try_into().unwrap_or_default(),
             children: Default::default(),
             data,
             link,
-            device,
-        }
+            device: if matches!(kind, FileType::CharacterSpecial | FileType::BlockSpecial) {
+                let rdev = metadata.rdev() as _;
+                Some(Device {
+                    major: unsafe { libc::major(rdev) } as _,
+                    minor: unsafe { libc::minor(rdev) } as _,
+                })
+            } else {
+                None
+            },
+        };
+        Ok((file, archived))
     }
 
     pub fn into_vec(self) -> Vec<File> {
@@ -215,6 +278,14 @@ pub struct Data {
 pub struct Encoding {
     #[serde(rename = "@style")]
     pub style: String,
+}
+
+impl From<Compression> for Encoding {
+    fn from(other: Compression) -> Self {
+        Self {
+            style: other.as_str().into(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -321,3 +392,5 @@ impl Default for Timestamp {
 }
 
 const XML_DECLARATION: &str = r#"<?xml version="1.0" encoding="UTF-8"?>"#;
+const SYMLINK_BROKEN: &str = "broken";
+const SYMLINK_FILE: &str = "file";
