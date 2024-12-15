@@ -116,8 +116,8 @@ impl AsRef<[u8]> for Checksum {
 }
 
 /// Hash algorithm of [`Checksum`].
-#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
-#[cfg_attr(test, derive(arbitrary::Arbitrary, PartialEq, Eq))]
+#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(test, derive(arbitrary::Arbitrary))]
 #[serde(rename_all = "lowercase")]
 #[repr(u32)]
 pub enum ChecksumAlgo {

@@ -34,17 +34,6 @@ pub struct Xar {
 }
 
 impl Xar {
-    #[cfg(debug_assertions)]
-    pub fn read<R: Read>(reader: R) -> Result<Self, Error> {
-        let mut reader = ZlibDecoder::new(reader);
-        let mut bytes = Vec::new();
-        reader.read_to_end(&mut bytes)?;
-        eprintln!("read toc {}", String::from_utf8_lossy(&bytes[..]));
-        let reader = BufReader::new(std::io::Cursor::new(bytes));
-        from_reader(reader).map_err(Error::other)
-    }
-
-    #[cfg(not(debug_assertions))]
     pub fn read<R: Read>(reader: R) -> Result<Self, Error> {
         let reader = ZlibDecoder::new(reader);
         let reader = BufReader::new(reader);

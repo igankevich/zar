@@ -210,6 +210,7 @@ impl<'a, R: Read + Seek> Entry<'a, R> {
         // TODO clone
         match file.data.clone() {
             Some(data) => {
+                debug_assert!(data.archived_checksum.algo == data.archived_checksum.value.algo());
                 self.archive.seek_to_file(
                     data.offset,
                     data.length,
@@ -304,7 +305,11 @@ mod tests {
                     reader.read_to_end(&mut buf).unwrap();
                     match entry.file().data.clone() {
                         Some(data) => {
-                            let actual_checksum = data.extracted_checksum.value.algo().hash(&buf);
+                            debug_assert!(
+                                data.extracted_checksum.algo
+                                    == data.extracted_checksum.value.algo()
+                            );
+                            let actual_checksum = data.extracted_checksum.algo.hash(&buf);
                             assert_eq!(
                                 data.extracted_checksum.value,
                                 actual_checksum,
