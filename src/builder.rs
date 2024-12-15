@@ -106,13 +106,37 @@ impl<W: Write, S: Signer> Builder<W, S> {
         compression: Compression,
     ) -> Result<(), Error> {
         let path = path.as_ref();
+        let mut next_id = self.files.len() as u64 + 1;
+        let mut tree = HashMap::new();
         for entry in path.walk()? {
             let entry = entry?;
-            let entry_path = entry.path().strip_prefix(path).unwrap().normalize();
-            if entry_path == Path::new("") {
+            let archive_path = entry.path().strip_prefix(path).unwrap().normalize();
+            if archive_path == Path::new("") {
                 continue;
             }
-            self.append_file(path, entry_path, entry.path(), compression)?;
+            let (file, archived_contents) = xml::File::new(
+                next_id,
+                path,
+                entry.path(),
+                Path::new(archive_path.file_name().unwrap_or_default()).to_path_buf(),
+                compression,
+                self.file_checksum_algo,
+                self.offset,
+            )?;
+            next_id += 1;
+            let parent = archive_path
+                .parent()
+                .map(|x| x.to_path_buf())
+                .unwrap_or_default();
+            if parent == Path::new("") {
+                tree.insert(archive_path, (file, archived_contents));
+                continue;
+            }
+            let parent = tree.get_mut(&parent).unwrap();
+            parent.0.children.push(file);
+        }
+        for (_archive_path, (file, archived_contents)) in tree.into_iter() {
+            self.append_raw(file, archived_contents)?;
         }
         Ok(())
     }

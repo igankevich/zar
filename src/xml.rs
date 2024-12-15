@@ -130,7 +130,6 @@ pub struct File {
     #[serde(default)]
     #[serde(rename = "file", skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<File>,
-    // TODO files can be nested if type == directory
     #[serde(default, skip_serializing_if = "Option::is_none")]
     data: Option<Data>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -226,12 +225,18 @@ impl File {
         Ok((file, archived))
     }
 
+    /// Flatten the file tree replacing file names with their full archive paths.
     pub fn into_vec(self) -> Vec<File> {
         let mut queue = VecDeque::new();
-        queue.push_back(self);
+        queue.push_back((PathBuf::new(), self));
         let mut files = Vec::new();
-        while let Some(mut file) = queue.pop_front() {
-            queue.extend(std::mem::take(&mut file.children));
+        while let Some((mut parent, mut file)) = queue.pop_front() {
+            parent.push(&file.name);
+            queue.extend(
+                std::mem::take(&mut file.children)
+                    .into_iter()
+                    .map(|file| (parent.clone(), file)),
+            );
             files.push(file);
         }
         files
