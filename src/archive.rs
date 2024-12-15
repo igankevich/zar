@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ffi::CStr;
 use std::fs::create_dir_all;
 use std::fs::set_permissions;
 use std::fs::File;
@@ -8,6 +9,7 @@ use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Take;
+use std::os::unix::fs::lchown;
 use std::os::unix::fs::symlink;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixDatagram;
@@ -16,6 +18,7 @@ use std::path::Path;
 use libc::makedev;
 use serde::Deserialize;
 
+use crate::lchown as c_lchown;
 use crate::mkfifo;
 use crate::mknod;
 use crate::path_to_c_string;
@@ -29,6 +32,65 @@ use crate::Header;
 use crate::Verifier;
 use crate::XarDecoder;
 
+/// Archive reading and extraction options.
+#[derive(Clone, Debug)]
+pub struct ArchiveOptions {
+    preserve_mtime: bool,
+    preserve_owner: bool,
+    check_toc: bool,
+    check_files: bool,
+}
+
+impl ArchiveOptions {
+    /// Use default options.
+    pub fn new() -> Self {
+        Self {
+            preserve_mtime: false,
+            preserve_owner: false,
+            check_toc: true,
+            check_files: true,
+        }
+    }
+
+    /// Preserve file modification time.
+    ///
+    /// `false` by default.
+    pub fn preserve_mtime(mut self, value: bool) -> Self {
+        self.preserve_mtime = value;
+        self
+    }
+
+    /// Preserve file's user and group IDs.
+    ///
+    /// `false` by default.
+    pub fn preserve_owner(mut self, value: bool) -> Self {
+        self.preserve_owner = value;
+        self
+    }
+
+    /// Check table of contents hash.
+    ///
+    /// `true` by default.
+    pub fn check_toc(mut self, value: bool) -> Self {
+        self.check_toc = value;
+        self
+    }
+
+    /// Check files' hashes.
+    ///
+    /// `true` by default.
+    pub fn check_files(mut self, value: bool) -> Self {
+        self.check_files = value;
+        self
+    }
+}
+
+impl Default for ArchiveOptions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// An archive without extra data.
 pub type Archive<R> = ExtendedArchive<R, ()>;
 
@@ -36,14 +98,21 @@ pub struct ExtendedArchive<R: Read + Seek, X = ()> {
     files: Vec<xml::File<X>>,
     reader: R,
     heap_offset: u64,
+    preserve_mtime: bool,
+    preserve_owner: bool,
+    check_files: bool,
 }
 
 impl<R: Read + Seek, X: for<'a> Deserialize<'a> + Default> ExtendedArchive<R, X> {
-    pub fn new_unsigned(reader: R) -> Result<Self, Error> {
-        Self::new::<NoVerifier>(reader, None)
+    pub fn new_unsigned(reader: R, options: ArchiveOptions) -> Result<Self, Error> {
+        Self::new::<NoVerifier>(reader, None, options)
     }
 
-    pub fn new<V: Verifier>(mut reader: R, verifier: Option<&V>) -> Result<Self, Error> {
+    pub fn new<V: Verifier>(
+        mut reader: R,
+        verifier: Option<&V>,
+        options: ArchiveOptions,
+    ) -> Result<Self, Error> {
         let header = Header::read(&mut reader)?;
         let mut toc_bytes = vec![0_u8; header.toc_len_compressed as usize];
         reader.read_exact(&mut toc_bytes[..])?;
@@ -53,9 +122,11 @@ impl<R: Read + Seek, X: for<'a> Deserialize<'a> + Default> ExtendedArchive<R, X>
         let mut checksum_bytes = vec![0_u8; toc.checksum.size as usize];
         reader.read_exact(&mut checksum_bytes[..])?;
         let checksum = Checksum::new(toc.checksum.algo, &checksum_bytes[..])?;
-        let actual_checksum = checksum.algo().hash(&toc_bytes[..]);
-        if checksum != actual_checksum {
-            return Err(Error::other("toc checksum mismatch"));
+        if options.check_toc {
+            let actual_checksum = checksum.algo().hash(&toc_bytes[..]);
+            if checksum != actual_checksum {
+                return Err(Error::other("toc checksum mismatch"));
+            }
         }
         if let Some(verifier) = verifier {
             let signature_bytes = match toc.signature {
@@ -73,6 +144,9 @@ impl<R: Read + Seek, X: for<'a> Deserialize<'a> + Default> ExtendedArchive<R, X>
             files: toc.files,
             reader,
             heap_offset,
+            preserve_mtime: options.preserve_mtime,
+            preserve_owner: options.preserve_owner,
+            check_files: options.check_files,
         })
     }
 }
@@ -99,6 +173,26 @@ impl<R: Read + Seek, X> ExtendedArchive<R, X> {
         let mut hard_links = Vec::new();
         // (dev, inode) -> id
         let mut inodes = HashMap::new();
+        let preserve_mtime = self.preserve_mtime;
+        let self_preserve_owner = self.preserve_owner;
+        let c_preserve_mtime = |path: &CStr, file: &xml::File<X>| -> Result<(), Error> {
+            if preserve_mtime {
+                set_file_modified_time(path, file.mtime.0)?;
+            }
+            Ok(())
+        };
+        let preserve_owner = |path: &Path, file: &xml::File<X>| -> Result<(), Error> {
+            if self_preserve_owner {
+                lchown(path, Some(file.uid), Some(file.gid))?;
+            }
+            Ok(())
+        };
+        let c_preserve_owner = |path: &CStr, file: &xml::File<X>| -> Result<(), Error> {
+            if self_preserve_owner {
+                c_lchown(path, file.uid, file.gid)?;
+            }
+            Ok(())
+        };
         for i in 0..self.num_entries() {
             let mut entry = self.entry(i);
             let dest_file = dest_dir.join(&entry.file().name);
@@ -117,61 +211,69 @@ impl<R: Read + Seek, X> ExtendedArchive<R, X> {
                     continue;
                 }
             }
-            match entry.reader()? {
-                Some(mut reader) => {
+            match file_type {
+                FileType::File => {
                     let mut file = File::create(&dest_file)?;
-                    std::io::copy(&mut reader, &mut file)?;
-                    file.set_permissions(Permissions::from_mode(entry.file().mode.into()))?;
-                    file.set_modified(entry.file().mtime.0)?;
+                    if let Some(mut reader) = entry.reader()? {
+                        std::io::copy(&mut reader, &mut file)?;
+                    }
+                    if preserve_mtime {
+                        file.set_modified(entry.file().mtime.0)?;
+                    }
+                    drop(file);
+                    preserve_owner(&dest_file, entry.file())?;
+                    let perms = Permissions::from_mode(entry.file().mode.into());
+                    set_permissions(&dest_file, perms)?;
                 }
-                None => match file_type {
-                    FileType::File => {
-                        // TODO refactor
-                        // should not happen
-                    }
-                    FileType::Directory => {
-                        create_dir_all(&dest_file)?;
+                FileType::Directory => {
+                    create_dir_all(&dest_file)?;
+                    if preserve_mtime {
                         File::open(&dest_file)?.set_modified(entry.file().mtime.0)?;
-                        // apply proper permissions later when we have written all other files
-                        dirs.push((dest_file, entry.file().mode));
                     }
-                    FileType::HardLink(hard_link) => match hard_link {
-                        HardLink::Original => {
-                            // ignore
-                        }
-                        HardLink::Id(id) => {
-                            // create hard links later because we might not have written
-                            // the original files by now
-                            hard_links.push((id, dest_file));
-                        }
-                    },
-                    FileType::Symlink => {
-                        let target = entry.file().link().unwrap().target.as_path();
-                        symlink(target, &dest_file)?;
-                        let path = path_to_c_string(dest_file)?;
-                        set_file_modified_time(&path, entry.file().mtime.0)?;
+                    preserve_owner(&dest_file, entry.file())?;
+                    // apply proper permissions later when we have written all other files
+                    dirs.push((dest_file, entry.file().mode));
+                }
+                FileType::HardLink(hard_link) => match hard_link {
+                    HardLink::Original => {
+                        // ignore
                     }
-                    FileType::Fifo => {
-                        let path = path_to_c_string(dest_file)?;
-                        mkfifo(&path, entry.file().mode.into_inner() as _)?;
-                        set_file_modified_time(&path, entry.file().mtime.0)?;
-                    }
-                    #[allow(unused_unsafe)]
-                    FileType::CharacterSpecial | FileType::BlockSpecial => {
-                        let path = path_to_c_string(dest_file)?;
-                        let dev = entry.file().device().unwrap();
-                        let dev = unsafe { makedev(dev.major as _, dev.minor as _) };
-                        mknod(&path, entry.file().mode.into_inner() as _, dev as _)?;
-                    }
-                    FileType::Socket => {
-                        UnixDatagram::bind(&dest_file)?;
-                        let path = path_to_c_string(dest_file)?;
-                        set_file_modified_time(&path, entry.file().mtime.0)?;
-                    }
-                    FileType::Whiteout => {
-                        // TODO
+                    HardLink::Id(id) => {
+                        // create hard links later because we might not have written
+                        // the original files by now
+                        hard_links.push((id, dest_file));
                     }
                 },
+                FileType::Symlink => {
+                    let target = entry.file().link().unwrap().target.as_path();
+                    symlink(target, &dest_file)?;
+                    let path = path_to_c_string(dest_file)?;
+                    c_preserve_mtime(&path, entry.file())?;
+                    c_preserve_owner(&path, entry.file())?;
+                }
+                FileType::Fifo => {
+                    let path = path_to_c_string(dest_file)?;
+                    let mode = entry.file().mode.into_inner();
+                    mkfifo(&path, mode as _)?;
+                    c_preserve_mtime(&path, entry.file())?;
+                    c_preserve_owner(&path, entry.file())?;
+                }
+                #[allow(unused_unsafe)]
+                FileType::CharacterSpecial | FileType::BlockSpecial => {
+                    let path = path_to_c_string(dest_file)?;
+                    let dev = entry.file().device().unwrap();
+                    let dev = unsafe { makedev(dev.major as _, dev.minor as _) };
+                    let mode = entry.file().mode.into_inner();
+                    mknod(&path, mode as _, dev as _)?;
+                    c_preserve_mtime(&path, entry.file())?;
+                    c_preserve_owner(&path, entry.file())?;
+                }
+                FileType::Socket => {
+                    UnixDatagram::bind(&dest_file)?;
+                    let path = path_to_c_string(dest_file)?;
+                    c_preserve_mtime(&path, entry.file())?;
+                    c_preserve_owner(&path, entry.file())?;
+                }
             }
         }
         for (id, dest_file) in hard_links.into_iter() {
@@ -187,22 +289,26 @@ impl<R: Read + Seek, X> ExtendedArchive<R, X> {
     }
 }
 
+#[inline]
 fn seek_to_file<R: Read + Seek>(
     reader: &mut R,
     offset: u64,
     length: u64,
     archived_checksum: &Checksum,
+    check_files: bool,
 ) -> Result<(), Error> {
     let mut file_bytes = vec![0_u8; length as usize];
     reader.seek(SeekFrom::Start(offset))?;
     reader.read_exact(&mut file_bytes[..])?;
-    let actual_checksum = archived_checksum.algo().hash(&file_bytes[..]);
-    if archived_checksum != &actual_checksum {
-        eprintln!(
-            "expected = {}, actual = {}",
-            archived_checksum, actual_checksum
-        );
-        return Err(Error::other("file checksum mismatch"));
+    if check_files {
+        let actual_checksum = archived_checksum.algo().hash(&file_bytes[..]);
+        if archived_checksum != &actual_checksum {
+            eprintln!(
+                "expected = {}, actual = {}",
+                archived_checksum, actual_checksum
+            );
+            return Err(Error::other("file checksum mismatch"));
+        }
     }
     reader.seek(SeekFrom::Start(offset))?;
     Ok(())
@@ -226,6 +332,7 @@ impl<'a, R: Read + Seek, X> Entry<'a, R, X> {
                     self.archive.heap_offset + data.offset,
                     data.length,
                     &data.archived_checksum.value,
+                    self.archive.check_files,
                 )?;
                 // we need decoder based on compression, otherwise we can accidentally decompress the
                 // file with octet-stream compression
@@ -309,8 +416,12 @@ mod tests {
             let expected_files = xar.files().to_vec();
             xar.finish().unwrap();
             let reader = File::open(&xar_path).unwrap();
-            let mut xar_archive =
-                ExtendedArchive::<std::fs::File, u64>::new(reader, Some(&verifier)).unwrap();
+            let mut xar_archive = ExtendedArchive::<std::fs::File, u64>::new(
+                reader,
+                Some(&verifier),
+                Default::default(),
+            )
+            .unwrap();
             let mut actual_files = Vec::new();
             for i in 0..xar_archive.num_entries() {
                 let mut entry = xar_archive.entry(i);

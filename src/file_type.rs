@@ -33,8 +33,6 @@ pub enum FileType {
     BlockSpecial,
     /// UNIX socket.
     Socket,
-    /// Whiteout.
-    Whiteout,
 }
 
 impl FileType {
@@ -50,7 +48,6 @@ impl FileType {
             CharacterSpecial => CHARACTER_SPECIAL,
             BlockSpecial => BLOCK_SPECIAL,
             Socket => SOCKET,
-            Whiteout => WHITEOUT,
         }
     }
 }
@@ -81,7 +78,6 @@ impl TryFrom<XmlFileType> for FileType {
             CHARACTER_SPECIAL => Ok(CharacterSpecial),
             BLOCK_SPECIAL => Ok(BlockSpecial),
             SOCKET => Ok(Socket),
-            WHITEOUT => Ok(Whiteout),
             _ => Err(ErrorKind::InvalidData.into()),
         }
     }
@@ -183,7 +179,6 @@ const FIFO: &str = "fifo";
 const CHARACTER_SPECIAL: &str = "character special";
 const BLOCK_SPECIAL: &str = "block special";
 const SOCKET: &str = "socket";
-const WHITEOUT: &str = "whiteout";
 
 const ORIGINAL: &str = "original";
 

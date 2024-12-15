@@ -19,12 +19,12 @@ use crate::HardLink;
 use crate::Signer;
 use crate::Walk;
 
-pub struct Options {
+pub struct BuilderOptions {
     file_checksum_algo: ChecksumAlgo,
     toc_checksum_algo: ChecksumAlgo,
 }
 
-impl Options {
+impl BuilderOptions {
     pub fn new() -> Self {
         Self {
             file_checksum_algo: Default::default(),
@@ -66,7 +66,7 @@ impl Options {
     }
 }
 
-impl Default for Options {
+impl Default for BuilderOptions {
     fn default() -> Self {
         Self::new()
     }
@@ -89,7 +89,7 @@ pub struct ExtendedBuilder<W: Write, S: Signer, X = ()> {
 
 impl<W: Write, S: Signer, X> ExtendedBuilder<W, S, X> {
     pub fn new(writer: W, signer: Option<S>) -> Self {
-        Options::new().create(writer, signer)
+        BuilderOptions::new().create(writer, signer)
     }
 
     pub fn files(&self) -> &[xml::File<X>] {

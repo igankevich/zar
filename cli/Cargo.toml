@@ -20,6 +20,9 @@ path = "src/main.rs"
 clap = { version = "4.5.23", features = ["derive"] }
 zar = { path = ".." }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+caps = "0.5.5"
+
 [dev-dependencies]
 arbitrary = { version = "1.4.1", features = ["derive"] }
 arbtest = "0.3.1"

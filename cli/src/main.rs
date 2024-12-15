@@ -52,6 +52,18 @@ struct Args {
     /// Path to a file with DER-encoded RSA public key.
     #[arg(long = "verify")]
     verifying_key_file: Option<PathBuf>,
+    /// Preserve files' last modification time.
+    #[arg(long = "preserve-mtime", default_value = "true")]
+    preserve_mtime: bool,
+    /// Preserve files' owner.
+    #[arg(long = "preserve-owner")]
+    preserve_owner: Option<bool>,
+    /// Verify table of contents' checksum.
+    #[arg(long = "check-toc", default_value = "true")]
+    check_toc: bool,
+    /// Verify files' checksums.
+    #[arg(long = "check-files", default_value = "true")]
+    check_files: bool,
     /// Files.
     #[arg(
         trailing_var_arg = true,
@@ -113,7 +125,7 @@ fn do_main() -> Result<ExitCode, Error> {
 fn create(args: Args) -> Result<ExitCode, Error> {
     let compression: zar::Compression = args.compression()?.into();
     let file = File::create(&args.file_name)?;
-    let options = zar::Options::new()
+    let options = zar::BuilderOptions::new()
         .toc_checksum_algo(args.toc_checksum.into())
         .file_checksum_algo(args.file_checksum.into());
     let mut builder = match args.signing_key_file {
@@ -151,7 +163,12 @@ fn extract(args: Args) -> Result<ExitCode, Error> {
         }
         None => None,
     };
-    let archive = zar::Archive::new(file, verifier.as_ref())?;
+    let options = zar::ArchiveOptions::new()
+        .check_toc(args.check_toc)
+        .check_files(args.check_files)
+        .preserve_mtime(args.preserve_mtime)
+        .preserve_owner(args.preserve_owner.unwrap_or_else(can_chown));
+    let archive = zar::Archive::new(file, verifier.as_ref(), options)?;
     archive.extract(dest_dir)?;
     Ok(ExitCode::SUCCESS)
 }
@@ -234,4 +251,15 @@ impl From<ChecksumAlgo> for zar::ChecksumAlgo {
             ChecksumAlgo::Sha512 => zar::ChecksumAlgo::Sha512,
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn can_chown() -> bool {
+    use caps::*;
+    has_cap(None, CapSet::Permitted, Capability::CAP_CHOWN).unwrap_or(false)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn can_chown() -> bool {
+    libc::getuid() == 0
 }
