@@ -179,24 +179,23 @@ impl<R: Read + Seek> Archive<R> {
         }
         Ok(())
     }
+}
 
-    fn seek_to_file(
-        &mut self,
-        offset: u64,
-        length: u64,
-        archived_checksum: Checksum,
-    ) -> Result<(), Error> {
-        let offset = self.heap_offset + offset;
-        let mut file_bytes = vec![0_u8; length as usize];
-        self.reader.seek(SeekFrom::Start(offset))?;
-        self.reader.read_exact(&mut file_bytes[..])?;
-        let actual_checksum = archived_checksum.algo().hash(&file_bytes[..]);
-        if archived_checksum != actual_checksum {
-            return Err(Error::other("file checksum mismatch"));
-        }
-        self.reader.seek(SeekFrom::Start(offset))?;
-        Ok(())
+fn seek_to_file<R: Read + Seek>(
+    reader: &mut R,
+    offset: u64,
+    length: u64,
+    archived_checksum: &Checksum,
+) -> Result<(), Error> {
+    let mut file_bytes = vec![0_u8; length as usize];
+    reader.seek(SeekFrom::Start(offset))?;
+    reader.read_exact(&mut file_bytes[..])?;
+    let actual_checksum = archived_checksum.algo().hash(&file_bytes[..]);
+    if archived_checksum != &actual_checksum {
+        return Err(Error::other("file checksum mismatch"));
     }
+    reader.seek(SeekFrom::Start(offset))?;
+    Ok(())
 }
 
 pub struct Entry<'a, R: Read + Seek> {
@@ -212,11 +211,11 @@ impl<'a, R: Read + Seek> Entry<'a, R> {
                 debug_assert!(data.archived_checksum.algo == data.archived_checksum.value.algo());
                 let compression: Compression = data.encoding.style.as_str().into();
                 let length = data.length;
-                self.archive.seek_to_file(
-                    data.offset,
+                seek_to_file(
+                    self.archive.reader.by_ref(),
+                    self.archive.heap_offset + data.offset,
                     data.length,
-                    // TODO clone
-                    data.archived_checksum.value.clone(),
+                    &data.archived_checksum.value,
                 )?;
                 // we need decoder based on compression, otherwise we can accidentally decompress the
                 // file with octet-stream compression
