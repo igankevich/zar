@@ -65,3 +65,26 @@ fn u64_read(data: &[u8]) -> u64 {
 
 const HEADER_LEN: usize = 4 + 2 + 2 + 8 + 8 + 4;
 const MAGIC: [u8; 4] = *b"xar!";
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::panic)]
+
+    use arbtest::arbtest;
+
+    use super::*;
+
+    #[test]
+    fn write_read_symmetry() {
+        arbtest(|u| {
+            let expected: Header = u.arbitrary()?;
+            let mut bytes = Vec::new();
+            expected.write(&mut bytes).unwrap();
+            let actual = Header::read(&bytes[..])
+                .inspect_err(|_| panic!("failed to parse {:?} as {:?}", bytes, expected))
+                .unwrap();
+            assert_eq!(expected, actual);
+            Ok(())
+        });
+    }
+}

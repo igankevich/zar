@@ -132,11 +132,11 @@ pub struct File {
     pub children: Vec<File>,
     // TODO files can be nested if type == directory
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub data: Option<Data>,
+    data: Option<Data>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub link: Option<Link>,
+    link: Option<Link>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub device: Option<Device>,
+    device: Option<Device>,
 }
 
 impl File {
@@ -235,6 +235,18 @@ impl File {
             files.push(file);
         }
         files
+    }
+
+    pub fn data(&self) -> Option<&Data> {
+        self.data.as_ref()
+    }
+
+    pub fn link(&self) -> Option<&Link> {
+        self.link.as_ref()
+    }
+
+    pub fn device(&self) -> Option<&Device> {
+        self.device.as_ref()
     }
 }
 

@@ -140,7 +140,7 @@ impl<R: Read + Seek> Archive<R> {
                         }
                     },
                     FileType::Symlink => {
-                        let target = entry.file().link.as_ref().unwrap().target.as_path();
+                        let target = entry.file().link().unwrap().target.as_path();
                         symlink(target, &dest_file)?;
                         let path = path_to_c_string(dest_file)?;
                         set_file_modified_time(&path, entry.file().mtime.0)?;
@@ -153,7 +153,7 @@ impl<R: Read + Seek> Archive<R> {
                     #[allow(unused_unsafe)]
                     FileType::CharacterSpecial | FileType::BlockSpecial => {
                         let path = path_to_c_string(dest_file)?;
-                        let dev = entry.file().device.as_ref().unwrap();
+                        let dev = entry.file().device().unwrap();
                         let dev = unsafe { makedev(dev.major as _, dev.minor as _) };
                         mknod(&path, entry.file().mode.into_inner() as _, dev as _)?;
                     }
@@ -207,20 +207,21 @@ pub struct Entry<'a, R: Read + Seek> {
 impl<'a, R: Read + Seek> Entry<'a, R> {
     pub fn reader(&mut self) -> Result<Option<XarDecoder<Take<&mut R>>>, Error> {
         let file = &self.archive.files[self.i];
-        // TODO clone
-        match file.data.clone() {
+        match file.data() {
             Some(data) => {
                 debug_assert!(data.archived_checksum.algo == data.archived_checksum.value.algo());
+                let compression: Compression = data.encoding.style.as_str().into();
+                let length = data.length;
                 self.archive.seek_to_file(
                     data.offset,
                     data.length,
-                    data.archived_checksum.value,
+                    // TODO clone
+                    data.archived_checksum.value.clone(),
                 )?;
                 // we need decoder based on compression, otherwise we can accidentally decompress the
                 // file with octet-stream compression
-                let compression: Compression = data.encoding.style.as_str().into();
                 Ok(Some(
-                    compression.decoder(self.archive.reader.by_ref().take(data.length)),
+                    compression.decoder(self.archive.reader.by_ref().take(length)),
                 ))
             }
             None if file.kind == FileType::File
@@ -302,7 +303,7 @@ mod tests {
                 if let Some(mut reader) = entry.reader().unwrap() {
                     let mut buf = Vec::new();
                     reader.read_to_end(&mut buf).unwrap();
-                    match entry.file().data.clone() {
+                    match entry.file().data() {
                         Some(data) => {
                             debug_assert!(
                                 data.extracted_checksum.algo
