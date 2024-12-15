@@ -16,6 +16,7 @@ use crate::ChecksumAlgo;
 use crate::Compression;
 use crate::FileStatus;
 use crate::FileType;
+use crate::HardLink;
 use crate::Signer;
 use crate::Walk;
 
@@ -206,9 +207,10 @@ impl<W: Write, S: Signer> Builder<W, S> {
             Occupied(o) => {
                 let i = *o.get();
                 let original_file = &mut self.files[i];
-                file.kind.link = Some(original_file.id.to_string());
-                if original_file.kind.link.is_none() {
-                    original_file.kind.link = Some("original".into());
+                file.kind = FileType::HardLink(HardLink::Id(original_file.id));
+                // Do not overwrite original file type, if it is already `HardLink`.
+                if !matches!(original_file.kind, FileType::HardLink(..)) {
+                    original_file.kind = FileType::HardLink(HardLink::Original);
                 }
             }
         }

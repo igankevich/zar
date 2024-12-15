@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::io::BufReader;
 use std::io::Error;
+use std::io::ErrorKind;
 use std::io::Read;
 use std::io::Write;
 use std::path::PathBuf;
@@ -24,6 +25,7 @@ use crate::Checksum;
 use crate::ChecksumAlgo;
 use crate::FileMode;
 use crate::FileStatus;
+use crate::FileType;
 use crate::Header;
 use crate::Signer;
 
@@ -145,7 +147,7 @@ impl File {
         Self {
             id,
             name: status.name,
-            kind: status.kind.into(),
+            kind: status.kind,
             inode: status.inode,
             deviceno: status.dev,
             mode: status.mode,
@@ -170,25 +172,6 @@ impl File {
             files.push(file);
         }
         files
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
-#[serde(rename = "type", rename_all = "kebab-case")]
-pub struct FileType {
-    #[serde(rename = "@link", skip_serializing_if = "Option::is_none")]
-    pub link: Option<String>,
-    #[serde(rename = "$value")]
-    pub value: String,
-}
-
-impl Default for FileType {
-    fn default() -> Self {
-        Self {
-            link: None,
-            value: "file".into(),
-        }
     }
 }
 
@@ -326,7 +309,7 @@ impl TryFrom<u64> for Timestamp {
     fn try_from(other: u64) -> Result<Self, Self::Error> {
         let t = UNIX_EPOCH
             .checked_add(Duration::from_secs(other))
-            .ok_or_else(|| Error::other("invalid timestamp"))?;
+            .ok_or(ErrorKind::InvalidData)?;
         Ok(Self(t))
     }
 }

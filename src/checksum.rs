@@ -64,6 +64,15 @@ impl FromStr for Checksum {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        macro_rules! decode_hex {
+            ($string:expr, $len:expr) => {{
+                use base16ct::mixed::decode;
+                let mut bytes = [0_u8; $len];
+                decode($string, &mut bytes[..]).map_err(|_| ErrorKind::InvalidData)?;
+                bytes
+            }};
+        }
+
         let s = s.trim();
         match s.len() {
             0 => Ok(Self::None),
@@ -168,17 +177,6 @@ impl TryFrom<u32> for ChecksumAlgo {
     }
 }
 
-macro_rules! decode_hex {
-    ($string:expr, $len:expr) => {{
-        use base16ct::mixed::decode;
-        let mut bytes = [0_u8; $len];
-        decode($string, &mut bytes[..]).map_err(|_| ErrorKind::InvalidData)?;
-        bytes
-    }};
-}
-
-use decode_hex;
-
 const MD5_LEN: usize = 16;
 const SHA1_LEN: usize = 20;
 const SHA256_LEN: usize = 32;
@@ -191,6 +189,7 @@ const SHA512_HEX_LEN: usize = 2 * SHA512_LEN;
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::panic)]
     use arbtest::arbtest;
 
     use super::*;

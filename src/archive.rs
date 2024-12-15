@@ -23,7 +23,7 @@ use crate::xml;
 use crate::Checksum;
 use crate::Compression;
 use crate::FileType;
-use crate::Hardlink;
+use crate::HardLink;
 use crate::Header;
 use crate::Verifier;
 use crate::XarDecoder;
@@ -96,11 +96,11 @@ impl<R: Read + Seek> Archive<R> {
         for i in 0..self.num_entries() {
             let mut entry = self.entry(i);
             let dest_file = dest_dir.join(&entry.file().name);
-            let file_type: FileType = entry.file().kind.clone().try_into()?;
+            let file_type: FileType = entry.file().kind;
             file_paths.insert(entry.file().id, dest_file.clone());
             match inodes.entry((entry.file().deviceno, entry.file().inode)) {
                 Vacant(v) => {
-                    if !matches!(file_type, FileType::Hardlink(Hardlink::Id(..))) {
+                    if !matches!(file_type, FileType::HardLink(HardLink::Id(..))) {
                         v.insert(entry.file().id);
                     }
                 }
@@ -129,11 +129,11 @@ impl<R: Read + Seek> Archive<R> {
                         // apply proper permissions later when we have written all other files
                         dirs.push((dest_file, entry.file().mode));
                     }
-                    FileType::Hardlink(hard_link) => match hard_link {
-                        Hardlink::Original => {
+                    FileType::HardLink(hard_link) => match hard_link {
+                        HardLink::Original => {
                             // ignore
                         }
-                        Hardlink::Id(id) => {
+                        HardLink::Id(id) => {
                             // create hard links later because we might not have written
                             // the original files by now
                             hard_links.push((id, dest_file));
@@ -223,9 +223,8 @@ impl<'a, R: Read + Seek> Entry<'a, R> {
                     compression.decoder(self.archive.reader.by_ref().take(data.length)),
                 ))
             }
-            None if file.kind.value == "file"
-                || (file.kind.value == "hardlink"
-                    && file.kind.link.as_deref() == Some("original")) =>
+            None if file.kind == FileType::File
+                || file.kind == FileType::HardLink(HardLink::Original) =>
             {
                 // The `Data` may not be stored for empty files.
                 let compression = Compression::None;
