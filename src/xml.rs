@@ -34,17 +34,19 @@ use crate::Signer;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename = "xar")]
-pub struct Xar {
-    pub toc: Toc,
+pub struct Xar<X: Default = ()> {
+    pub toc: Toc<X>,
 }
 
-impl Xar {
+impl<X: for<'a> Deserialize<'a> + Default> Xar<X> {
     pub fn read<R: Read>(reader: R) -> Result<Self, Error> {
         let reader = ZlibDecoder::new(reader);
         let reader = BufReader::new(reader);
         from_reader(reader).map_err(Error::other)
     }
+}
 
+impl<X: Serialize + Default> Xar<X> {
     pub fn write<W: Write, S: Signer>(
         &self,
         mut writer: W,
@@ -83,12 +85,12 @@ impl Xar {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename = "toc", rename_all = "kebab-case")]
-pub struct Toc {
+pub struct Toc<X = ()> {
     pub checksum: TocChecksum,
     #[serde(default)]
     pub creation_time: Timestamp,
     #[serde(rename = "file", default, skip_serializing_if = "Vec::is_empty")]
-    pub files: Vec<File>,
+    pub files: Vec<File<X>>,
     #[serde(rename = "signature", default, skip_serializing_if = "Option::is_none")]
     pub signature: Option<Signature>,
 }
@@ -105,7 +107,7 @@ pub struct TocChecksum {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 #[serde(rename = "file")]
-pub struct File {
+pub struct File<X = ()> {
     #[serde(rename = "@id")]
     pub id: u64,
     pub name: PathBuf,
@@ -129,16 +131,19 @@ pub struct File {
     pub ctime: Timestamp,
     #[serde(default)]
     #[serde(rename = "file", skip_serializing_if = "Vec::is_empty")]
-    pub children: Vec<File>,
+    pub children: Vec<File<X>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     data: Option<Data>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     link: Option<Link>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     device: Option<Device>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra: Option<X>,
 }
 
-impl File {
+impl<X> File<X> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new<P1: AsRef<Path>, P2: AsRef<Path>>(
         id: u64,
         prefix: P1,
@@ -147,6 +152,7 @@ impl File {
         compression: Compression,
         checksum_algo: ChecksumAlgo,
         offset: u64,
+        extra: Option<X>,
     ) -> Result<(Self, Vec<u8>), Error> {
         use std::os::unix::fs::MetadataExt;
         let path = path.as_ref();
@@ -221,12 +227,13 @@ impl File {
             } else {
                 None
             },
+            extra,
         };
         Ok((file, archived))
     }
 
     /// Flatten the file tree replacing file names with their full archive paths.
-    pub fn into_vec(self) -> Vec<File> {
+    pub fn into_vec(self) -> Vec<File<X>> {
         let mut queue = VecDeque::new();
         queue.push_back((PathBuf::new(), self));
         let mut files = Vec::new();
@@ -279,8 +286,6 @@ pub struct Device {
 #[cfg_attr(test, derive(PartialEq, Eq))]
 #[serde(rename = "data", rename_all = "kebab-case")]
 pub struct Data {
-    // TODO add custom properties here
-    // ignore <contents>
     pub archived_checksum: FileChecksum,
     pub extracted_checksum: FileChecksum,
     pub encoding: Encoding,

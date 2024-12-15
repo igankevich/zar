@@ -14,6 +14,7 @@ use std::os::unix::net::UnixDatagram;
 use std::path::Path;
 
 use libc::makedev;
+use serde::Deserialize;
 
 use crate::mkfifo;
 use crate::mknod;
@@ -28,13 +29,16 @@ use crate::Header;
 use crate::Verifier;
 use crate::XarDecoder;
 
-pub struct Archive<R: Read + Seek> {
-    files: Vec<xml::File>,
+/// An archive without extra data.
+pub type Archive<R> = ExtendedArchive<R, ()>;
+
+pub struct ExtendedArchive<R: Read + Seek, X = ()> {
+    files: Vec<xml::File<X>>,
     reader: R,
     heap_offset: u64,
 }
 
-impl<R: Read + Seek> Archive<R> {
+impl<R: Read + Seek, X: for<'a> Deserialize<'a> + Default> ExtendedArchive<R, X> {
     pub fn new_unsigned(reader: R) -> Result<Self, Error> {
         Self::new::<NoVerifier>(reader, None)
     }
@@ -43,7 +47,7 @@ impl<R: Read + Seek> Archive<R> {
         let header = Header::read(&mut reader)?;
         let mut toc_bytes = vec![0_u8; header.toc_len_compressed as usize];
         reader.read_exact(&mut toc_bytes[..])?;
-        let toc = xml::Xar::read(&toc_bytes[..])?.toc;
+        let toc = xml::Xar::<X>::read(&toc_bytes[..])?.toc;
         let heap_offset = reader.stream_position()?;
         reader.seek(SeekFrom::Start(heap_offset + toc.checksum.offset))?;
         let mut checksum_bytes = vec![0_u8; toc.checksum.size as usize];
@@ -71,8 +75,10 @@ impl<R: Read + Seek> Archive<R> {
             heap_offset,
         })
     }
+}
 
-    pub fn files(&self) -> &[xml::File] {
+impl<R: Read + Seek, X> ExtendedArchive<R, X> {
+    pub fn files(&self) -> &[xml::File<X>] {
         self.files.as_slice()
     }
 
@@ -80,7 +86,7 @@ impl<R: Read + Seek> Archive<R> {
         self.files.len()
     }
 
-    pub fn entry(&mut self, i: usize) -> Entry<R> {
+    pub fn entry(&mut self, i: usize) -> Entry<R, X> {
         Entry { i, archive: self }
     }
 
@@ -192,18 +198,22 @@ fn seek_to_file<R: Read + Seek>(
     reader.read_exact(&mut file_bytes[..])?;
     let actual_checksum = archived_checksum.algo().hash(&file_bytes[..]);
     if archived_checksum != &actual_checksum {
+        eprintln!(
+            "expected = {}, actual = {}",
+            archived_checksum, actual_checksum
+        );
         return Err(Error::other("file checksum mismatch"));
     }
     reader.seek(SeekFrom::Start(offset))?;
     Ok(())
 }
 
-pub struct Entry<'a, R: Read + Seek> {
-    archive: &'a mut Archive<R>,
+pub struct Entry<'a, R: Read + Seek, X> {
+    archive: &'a mut ExtendedArchive<R, X>,
     i: usize,
 }
 
-impl<'a, R: Read + Seek> Entry<'a, R> {
+impl<'a, R: Read + Seek, X> Entry<'a, R, X> {
     pub fn reader(&mut self) -> Result<Option<XarDecoder<Take<&mut R>>>, Error> {
         let file = &self.archive.files[self.i];
         match file.data() {
@@ -237,7 +247,7 @@ impl<'a, R: Read + Seek> Entry<'a, R> {
         }
     }
 
-    pub fn file(&self) -> &xml::File {
+    pub fn file(&self) -> &xml::File<X> {
         &self.archive.files[self.i]
     }
 }
@@ -262,7 +272,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::Builder;
+    use crate::ExtendedBuilder;
     use crate::NoSigner;
     use crate::RsaKeypair;
     use crate::RsaPrivateKey;
@@ -287,14 +297,20 @@ mod tests {
         let workdir = TempDir::new().unwrap();
         arbtest(|u| {
             let directory = DirBuilder::new().printable_names(true).create(u)?;
+            let extra = u.arbitrary()?;
             let xar_path = workdir.path().join("test.xar");
-            let mut xar = Builder::new(File::create(&xar_path).unwrap(), Some(&signer));
-            xar.append_dir_all(directory.path(), Compression::Gzip)
-                .unwrap();
+            let mut xar = ExtendedBuilder::new(File::create(&xar_path).unwrap(), Some(&signer));
+            xar.append_dir_all(
+                directory.path(),
+                Compression::Gzip,
+                |_file: &xml::File<u64>, _: &Path, _: &Path| Ok(Some(extra)),
+            )
+            .unwrap();
             let expected_files = xar.files().to_vec();
             xar.finish().unwrap();
             let reader = File::open(&xar_path).unwrap();
-            let mut xar_archive = Archive::new(reader, Some(&verifier)).unwrap();
+            let mut xar_archive =
+                ExtendedArchive::<std::fs::File, u64>::new(reader, Some(&verifier)).unwrap();
             let mut actual_files = Vec::new();
             for i in 0..xar_archive.num_entries() {
                 let mut entry = xar_archive.entry(i);
@@ -302,6 +318,7 @@ mod tests {
                 if let Some(mut reader) = entry.reader().unwrap() {
                     let mut buf = Vec::new();
                     reader.read_to_end(&mut buf).unwrap();
+                    assert_eq!(extra, entry.file().extra.unwrap());
                     match entry.file().data() {
                         Some(data) => {
                             debug_assert!(

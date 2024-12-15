@@ -126,7 +126,7 @@ fn create(args: Args) -> Result<ExitCode, Error> {
         None => options.create(file, None),
     };
     for path in args.paths.iter() {
-        builder.append_dir_all(path, compression)?;
+        builder.append_dir_all(path, compression, zar::no_extra_contents)?;
     }
     builder.finish()?;
     Ok(ExitCode::SUCCESS)

@@ -8,6 +8,8 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 use normalize_path::NormalizePath;
+use serde::Deserialize;
+use serde::Serialize;
 
 use crate::xml;
 use crate::ChecksumAlgo;
@@ -40,14 +42,18 @@ impl Options {
         self
     }
 
-    pub fn create<W: Write, S: Signer>(self, writer: W, signer: Option<S>) -> Builder<W, S> {
+    pub fn create<W: Write, S: Signer, X>(
+        self,
+        writer: W,
+        signer: Option<S>,
+    ) -> ExtendedBuilder<W, S, X> {
         let toc_checksum_len = self.toc_checksum_algo.hash_len();
         let offset = if let Some(ref signer) = signer {
             toc_checksum_len + signer.signature_len()
         } else {
             toc_checksum_len
         };
-        Builder {
+        ExtendedBuilder {
             writer,
             signer,
             offset: offset as u64,
@@ -66,47 +72,61 @@ impl Default for Options {
     }
 }
 
-pub struct Builder<W: Write, S: Signer> {
+/// A builder without extra data.
+pub type Builder<W, S> = ExtendedBuilder<W, S, ()>;
+
+pub struct ExtendedBuilder<W: Write, S: Signer, X = ()> {
     writer: W,
     signer: Option<S>,
     file_checksum_algo: ChecksumAlgo,
     toc_checksum_algo: ChecksumAlgo,
-    files: Vec<xml::File>,
+    files: Vec<xml::File<X>>,
     contents: Vec<Vec<u8>>,
     // (dev, inode) -> file index
     inodes: HashMap<(u64, u64), usize>,
     offset: u64,
 }
 
-impl<W: Write, S: Signer> Builder<W, S> {
+impl<W: Write, S: Signer, X> ExtendedBuilder<W, S, X> {
     pub fn new(writer: W, signer: Option<S>) -> Self {
         Options::new().create(writer, signer)
     }
 
-    pub fn files(&self) -> &[xml::File] {
+    pub fn files(&self) -> &[xml::File<X>] {
         &self.files[..]
     }
 
-    pub fn append_path_all<P: AsRef<Path>>(
+    pub fn append_path_all<F, P>(
         &mut self,
         path: P,
         compression: Compression,
-    ) -> Result<(), Error> {
+        extra: F,
+    ) -> Result<(), Error>
+    where
+        F: FnMut(&xml::File<X>, &Path, &Path) -> Result<Option<X>, Error>,
+        P: AsRef<Path>,
+    {
         let path = path.as_ref();
         if path.is_dir() {
-            self.append_dir_all(path, compression)
+            self.append_dir_all(path, compression, extra)
         } else {
-            self.append_file(path, path.to_path_buf(), path, compression)
+            self.append_file(path, path.to_path_buf(), path, compression, extra)
         }
     }
 
-    pub fn append_dir_all<P: AsRef<Path>>(
+    pub fn append_dir_all<F, P>(
         &mut self,
         path: P,
         compression: Compression,
-    ) -> Result<(), Error> {
+        mut extra: F,
+    ) -> Result<(), Error>
+    where
+        F: FnMut(&xml::File<X>, &Path, &Path) -> Result<Option<X>, Error>,
+        P: AsRef<Path>,
+    {
         let path = path.as_ref();
         let mut next_id = self.files.len() as u64 + 1;
+        let mut next_offset = self.offset;
         let mut tree = HashMap::new();
         for entry in path.walk()? {
             let entry = entry?;
@@ -114,56 +134,69 @@ impl<W: Write, S: Signer> Builder<W, S> {
             if archive_path == Path::new("") {
                 continue;
             }
-            let (file, archived_contents) = xml::File::new(
+            let (file, archived_contents) = xml::File::<X>::new(
                 next_id,
                 path,
                 entry.path(),
                 Path::new(archive_path.file_name().unwrap_or_default()).to_path_buf(),
                 compression,
                 self.file_checksum_algo,
-                self.offset,
+                next_offset,
+                None,
             )?;
             next_id += 1;
+            next_offset += archived_contents.len() as u64;
             let parent = archive_path
                 .parent()
                 .map(|x| x.to_path_buf())
                 .unwrap_or_default();
             if parent == Path::new("") {
-                tree.insert(archive_path, (file, archived_contents));
+                tree.insert(archive_path, (file, archived_contents, entry.path()));
                 continue;
             }
             let parent = tree.get_mut(&parent).unwrap();
             parent.0.children.push(file);
         }
-        for (_archive_path, (file, archived_contents)) in tree.into_iter() {
+        let mut files: Vec<_> = tree.into_iter().collect();
+        files.sort_unstable_by_key(|entry| entry.1 .0.id);
+        for (archive_path, (mut file, archived_contents, real_path)) in files.into_iter() {
+            file.extra = extra(&file, &archive_path, &real_path)?;
             self.append_raw(file, archived_contents)?;
         }
         Ok(())
     }
 
-    pub fn append_file<P: AsRef<Path>>(
+    // TODO do we need that? no nesting here
+    pub fn append_file<F, P>(
         &mut self,
         prefix: &Path,
         archive_path: PathBuf,
         path: P,
         compression: Compression,
-    ) -> Result<(), Error> {
+        mut extra: F,
+    ) -> Result<(), Error>
+    where
+        F: FnMut(&xml::File<X>, &Path, &Path) -> Result<Option<X>, Error>,
+        P: AsRef<Path>,
+    {
         let path = path.as_ref();
-        let (file, archived_contents) = xml::File::new(
+        let (mut file, archived_contents) = xml::File::new(
             self.files.len() as u64 + 1,
             prefix,
             path,
-            archive_path,
+            archive_path.clone(),
             compression,
             self.file_checksum_algo,
             self.offset,
+            None,
         )?;
+        file.extra = extra(&file, &archive_path, path)?;
         self.append_raw(file, archived_contents)
     }
 
     pub fn append_raw(
         &mut self,
-        mut file: xml::File,
+        mut file: xml::File<X>,
         archived_contents: Vec<u8>,
     ) -> Result<(), Error> {
         self.handle_hard_links(&mut file);
@@ -173,10 +206,40 @@ impl<W: Write, S: Signer> Builder<W, S> {
         Ok(())
     }
 
+    pub fn get_mut(&mut self) -> &mut W {
+        self.writer.by_ref()
+    }
+
+    pub fn get(&self) -> &W {
+        &self.writer
+    }
+
+    fn handle_hard_links(&mut self, file: &mut xml::File<X>) {
+        match self.inodes.entry((file.deviceno, file.inode)) {
+            Vacant(v) => {
+                let i = self.files.len();
+                v.insert(i);
+            }
+            Occupied(o) => {
+                let i = *o.get();
+                let original_file = &mut self.files[i];
+                file.kind = FileType::HardLink(HardLink::Id(original_file.id));
+                // Do not overwrite original file type if it is already `HardLink`.
+                if !matches!(original_file.kind, FileType::HardLink(..)) {
+                    original_file.kind = FileType::HardLink(HardLink::Original);
+                }
+            }
+        }
+    }
+}
+
+impl<W: Write, S: Signer, X: Serialize + for<'a> Deserialize<'a> + Default>
+    ExtendedBuilder<W, S, X>
+{
     pub fn finish(mut self) -> Result<W, Error> {
         let checksum_len = self.toc_checksum_algo.hash_len() as u64;
-        let xar = xml::Xar {
-            toc: xml::Toc {
+        let xar = xml::Xar::<X> {
+            toc: xml::Toc::<X> {
                 checksum: xml::TocChecksum {
                     algo: self.toc_checksum_algo,
                     offset: 0,
@@ -209,32 +272,6 @@ impl<W: Write, S: Signer> Builder<W, S> {
         }
         Ok(self.writer)
     }
-
-    pub fn get_mut(&mut self) -> &mut W {
-        self.writer.by_ref()
-    }
-
-    pub fn get(&self) -> &W {
-        &self.writer
-    }
-
-    fn handle_hard_links(&mut self, file: &mut xml::File) {
-        match self.inodes.entry((file.deviceno, file.inode)) {
-            Vacant(v) => {
-                let i = self.files.len();
-                v.insert(i);
-            }
-            Occupied(o) => {
-                let i = *o.get();
-                let original_file = &mut self.files[i];
-                file.kind = FileType::HardLink(HardLink::Id(original_file.id));
-                // Do not overwrite original file type if it is already `HardLink`.
-                if !matches!(original_file.kind, FileType::HardLink(..)) {
-                    original_file.kind = FileType::HardLink(HardLink::Original);
-                }
-            }
-        }
-    }
 }
 
 // A stub to produce unsigned archives.
@@ -252,4 +289,8 @@ impl Signer for NoSigner {
     fn signature_len(&self) -> usize {
         0
     }
+}
+
+pub fn no_extra_contents(_: &xml::File<()>, _: &Path, _: &Path) -> Result<Option<()>, Error> {
+    Ok(None)
 }
