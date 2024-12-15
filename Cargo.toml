@@ -52,7 +52,7 @@ version = "0.1.0"
 license = "MIT"
 
 [lints.clippy]
-#unwrap_used = "deny"
+unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
 

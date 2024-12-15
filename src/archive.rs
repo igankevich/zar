@@ -185,7 +185,7 @@ impl<R: Read + Seek, X: for<'a> Deserialize<'a> + Default> ExtendedArchive<R, X>
                 let rsa_signature: RsaSignature = certificate
                     .signature
                     .as_bytes()
-                    .unwrap()
+                    .ok_or(ErrorKind::InvalidData)?
                     .try_into()
                     .map_err(|_| ErrorKind::InvalidData)?;
                 let cert_data = certificate
@@ -339,7 +339,12 @@ impl<R: Read + Seek, X> ExtendedArchive<R, X> {
                     }
                 },
                 FileType::Symlink => {
-                    let target = entry.file().link().unwrap().target.as_path();
+                    let target = entry
+                        .file()
+                        .link()
+                        .ok_or(ErrorKind::InvalidData)?
+                        .target
+                        .as_path();
                     symlink(target, &dest_file)?;
                     let path = path_to_c_string(dest_file)?;
                     c_preserve_mtime(&path, entry.file())?;
@@ -355,7 +360,7 @@ impl<R: Read + Seek, X> ExtendedArchive<R, X> {
                 #[allow(unused_unsafe)]
                 FileType::CharacterSpecial | FileType::BlockSpecial => {
                     let path = path_to_c_string(dest_file)?;
-                    let dev = entry.file().device().unwrap();
+                    let dev = entry.file().device().ok_or(ErrorKind::InvalidData)?;
                     let dev = unsafe { makedev(dev.major as _, dev.minor as _) };
                     let mode = entry.file().mode.into_inner();
                     mknod(&path, mode as _, dev as _)?;
@@ -371,7 +376,7 @@ impl<R: Read + Seek, X> ExtendedArchive<R, X> {
             }
         }
         for (id, dest_file) in hard_links.into_iter() {
-            let original = file_paths.get(&id).unwrap();
+            let original = file_paths.get(&id).ok_or(ErrorKind::InvalidData)?;
             std::fs::hard_link(original, &dest_file)?;
         }
         dirs.sort_unstable_by(|a, b| b.0.cmp(&a.0));

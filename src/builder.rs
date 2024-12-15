@@ -2,6 +2,7 @@ use std::collections::hash_map::Entry::Occupied;
 use std::collections::hash_map::Entry::Vacant;
 use std::collections::HashMap;
 use std::io::Error;
+use std::io::ErrorKind;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
@@ -134,7 +135,11 @@ impl<W: Write, S: Signer, X> ExtendedBuilder<W, S, X> {
         let mut tree = HashMap::new();
         for entry in path.walk()? {
             let entry = entry?;
-            let archive_path = entry.path().strip_prefix(path).unwrap().normalize();
+            let archive_path = entry
+                .path()
+                .strip_prefix(path)
+                .map_err(|_| ErrorKind::InvalidData)?
+                .normalize();
             if archive_path == Path::new("") {
                 continue;
             }
@@ -158,7 +163,7 @@ impl<W: Write, S: Signer, X> ExtendedBuilder<W, S, X> {
                 tree.insert(archive_path, (file, archived_contents, entry.path()));
                 continue;
             }
-            let parent = tree.get_mut(&parent).unwrap();
+            let parent = tree.get_mut(&parent).ok_or(ErrorKind::InvalidData)?;
             parent.0.children.push(file);
         }
         let mut files: Vec<_> = tree.into_iter().collect();
@@ -242,6 +247,28 @@ impl<W: Write, S: Signer, X: Serialize + for<'a> Deserialize<'a> + Default>
 {
     pub fn finish(mut self) -> Result<W, Error> {
         let checksum_len = self.toc_checksum_algo.hash_len() as u64;
+        // http://users.wfu.edu/cottrell/productsign/productsign_linux.html
+        let signature = match self.signer.as_ref() {
+            Some(signer) => Some(xml::Signature {
+                style: signer.signature_style().into(),
+                offset: checksum_len,
+                size: signer.signature_len() as u64,
+                key_info: xml::KeyInfo {
+                    data: xml::X509Data {
+                        certificates: signer
+                            .certs()
+                            .iter()
+                            .map(|cert| -> Result<_, Error> {
+                                let bytes = cert.to_der().map_err(|_| ErrorKind::InvalidData)?;
+                                let string = Base64::encode_string(&bytes);
+                                Ok(xml::X509Certificate { data: string })
+                            })
+                            .collect::<Result<Vec<_>, _>>()?,
+                    },
+                },
+            }),
+            None => None,
+        };
         let xar = xml::Xar::<X> {
             toc: xml::Toc::<X> {
                 checksum: xml::TocChecksum {
@@ -250,25 +277,7 @@ impl<W: Write, S: Signer, X: Serialize + for<'a> Deserialize<'a> + Default>
                     size: checksum_len,
                 },
                 files: self.files,
-                // http://users.wfu.edu/cottrell/productsign/productsign_linux.html
-                signature: self.signer.as_ref().map(|signer| xml::Signature {
-                    style: signer.signature_style().into(),
-                    offset: checksum_len,
-                    size: signer.signature_len() as u64,
-                    key_info: xml::KeyInfo {
-                        data: xml::X509Data {
-                            certificates: signer
-                                .certs()
-                                .iter()
-                                .map(|cert| {
-                                    let bytes = cert.to_der().unwrap();
-                                    let string = Base64::encode_string(&bytes);
-                                    xml::X509Certificate { data: string }
-                                })
-                                .collect(),
-                        },
-                    },
-                }),
+                signature,
                 creation_time: xml::Timestamp(SystemTime::now()),
             },
         };
