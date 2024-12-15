@@ -1,26 +1,21 @@
 use std::io::Error;
 use std::io::ErrorKind;
 
+use rsa::pkcs1v15::Signature as RsaSignature;
 use rsa::pkcs1v15::SigningKey;
 use rsa::pkcs1v15::VerifyingKey;
 use rsa::rand_core::OsRng;
 use rsa::signature::RandomizedSigner;
 use rsa::signature::SignatureEncoding;
 use rsa::signature::Verifier as RsaVerifierTrait;
+use rsa::RsaPrivateKey;
+use rsa::RsaPublicKey;
 use sha1::Sha1;
 use sha2::Sha256;
 use x509_cert::Certificate;
 
 use crate::ChecksumAlgo;
 use crate::Signer;
-
-pub type RsaVerifier = VerifyingKey<Sha1>;
-pub use rsa::pkcs1::DecodeRsaPrivateKey;
-pub use rsa::pkcs1::DecodeRsaPublicKey;
-pub use rsa::pkcs1v15::Signature as RsaSignature;
-pub use rsa::signature::Keypair as RsaKeypair;
-pub use rsa::RsaPrivateKey;
-pub use rsa::RsaPublicKey;
 
 #[derive(Debug)]
 pub struct RsaSigner {
@@ -74,11 +69,11 @@ impl Signer for RsaSigner {
     }
 }
 
-pub struct RsaVerifierV2 {
+pub struct RsaVerifier {
     inner: RsaVerifierInner,
 }
 
-impl RsaVerifierV2 {
+impl RsaVerifier {
     pub fn new(algo: ChecksumAlgo, public_key: RsaPublicKey) -> Result<Self, Error> {
         use RsaVerifierInner::*;
         let inner = match algo {

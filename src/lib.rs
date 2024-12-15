@@ -12,6 +12,10 @@ mod signer;
 mod walk;
 pub mod xml;
 
+// Re-exports.
+pub use rsa;
+pub use x509_cert;
+
 pub use self::archive::*;
 pub use self::builder::*;
 pub use self::checksum::*;

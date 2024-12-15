@@ -9,7 +9,7 @@ use clap::Parser;
 use clap::ValueEnum;
 use x509_cert::der::Decode;
 use x509_cert::Certificate;
-use zar::DecodeRsaPrivateKey;
+use zar::rsa::pkcs1::DecodeRsaPrivateKey;
 
 #[derive(Parser)]
 #[clap(arg_required_else_help = true, about = "XAR archiver and extractor")]
@@ -161,8 +161,8 @@ fn create(args: Args) -> Result<ExitCode, Error> {
         .file_checksum_algo(args.file_checksum.into());
     let mut builder = match args.signing_key_file {
         Some(ref signing_key_file) => {
-            let private_key =
-                zar::RsaPrivateKey::read_pkcs1_der_file(signing_key_file).map_err(Error::other)?;
+            let private_key = zar::rsa::RsaPrivateKey::read_pkcs1_der_file(signing_key_file)
+                .map_err(Error::other)?;
             let mut certs = Vec::new();
             for cert_path in args.certs.iter() {
                 let der = std::fs::read(cert_path)?;

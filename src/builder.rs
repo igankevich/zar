@@ -257,22 +257,15 @@ impl<W: Write, S: Signer, X: Serialize + for<'a> Deserialize<'a> + Default>
                     size: signer.signature_len() as u64,
                     key_info: xml::KeyInfo {
                         data: xml::X509Data {
-                            // TODO certs
-                            certificates: self
-                                .signer
-                                .as_ref()
-                                .map(|signer| {
-                                    signer
-                                        .certs()
-                                        .iter()
-                                        .map(|cert| {
-                                            let bytes = cert.to_der().unwrap();
-                                            let string = Base64::encode_string(&bytes);
-                                            xml::X509Certificate { data: string }
-                                        })
-                                        .collect()
+                            certificates: signer
+                                .certs()
+                                .iter()
+                                .map(|cert| {
+                                    let bytes = cert.to_der().unwrap();
+                                    let string = Base64::encode_string(&bytes);
+                                    xml::X509Certificate { data: string }
                                 })
-                                .unwrap_or_default(),
+                                .collect(),
                         },
                     },
                 }),

@@ -1194,7 +1194,6 @@ dependencies = [
  "sha2",
  "similar-asserts",
  "tempfile",
- "walkdir",
  "x509-cert",
  "xz",
 ]

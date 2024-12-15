@@ -20,6 +20,8 @@ use std::path::Path;
 use base64ct::Base64;
 use base64ct::Encoding;
 use libc::makedev;
+use rsa::pkcs1v15::Signature as RsaSignature;
+use rsa::RsaPublicKey;
 use serde::Deserialize;
 use x509_cert::der::oid::ObjectIdentifier;
 use x509_cert::der::referenced::OwnedToRef;
@@ -41,9 +43,7 @@ use crate::FileType;
 use crate::HardLink;
 use crate::Header;
 use crate::RootCertVerifier;
-use crate::RsaPublicKey;
-use crate::RsaSignature;
-use crate::RsaVerifierV2;
+use crate::RsaVerifier;
 use crate::XarDecoder;
 
 /// Archive reading and extraction options.
@@ -209,7 +209,7 @@ impl<R: Read + Seek, X: for<'a> Deserialize<'a> + Default> ExtendedArchive<R, X>
             ) = certificates
                 .pop_front()
                 .ok_or_else(|| Error::other("no certificates found"))?;
-            let verifier = RsaVerifierV2::new(toc.checksum.algo, rsa_public_key)?;
+            let verifier = RsaVerifier::new(toc.checksum.algo, rsa_public_key)?;
             verifier.verify(&toc_bytes, &signature)?;
             signature = next_signature;
             let mut last_rsa_public_key = verifier.into_inner();
@@ -221,7 +221,7 @@ impl<R: Read + Seek, X: for<'a> Deserialize<'a> + Default> ExtendedArchive<R, X>
                 next_certificate,
             )) = certificates.pop_front()
             {
-                let verifier = RsaVerifierV2::new(signature_algo, rsa_public_key)?;
+                let verifier = RsaVerifier::new(signature_algo, rsa_public_key)?;
                 verifier.verify(&cert_data, &signature)?;
                 cert_data = next_cert_data;
                 signature = next_signature;
@@ -230,7 +230,7 @@ impl<R: Read + Seek, X: for<'a> Deserialize<'a> + Default> ExtendedArchive<R, X>
                 last_rsa_public_key = verifier.into_inner();
             }
             // self-signed
-            let verifier = RsaVerifierV2::new(signature_algo, last_rsa_public_key)?;
+            let verifier = RsaVerifier::new(signature_algo, last_rsa_public_key)?;
             verifier.verify(&cert_data, &signature)?;
             root_cert_verifier.verify(&certificate)?;
         }
@@ -464,6 +464,7 @@ mod tests {
     use rsa::pkcs1v15::SigningKey;
     use rsa::rand_core::OsRng;
     use rsa::signature::Keypair;
+    use rsa::RsaPrivateKey;
     use tempfile::TempDir;
     use x509_cert::builder::Builder;
     use x509_cert::spki::EncodePublicKey;
@@ -471,7 +472,6 @@ mod tests {
     use super::*;
     use crate::BuilderOptions;
     use crate::NoSigner;
-    use crate::RsaPrivateKey;
     use crate::RsaSigner;
     use crate::Signer;
 
