@@ -73,9 +73,9 @@ impl Xar {
         };
         header.write(writer.by_ref())?;
         writer.write_all(&toc_compressed)?;
-        let checksum = Checksum::new_from_data(checksum_algo, &toc_compressed);
+        let checksum = checksum_algo.hash(&toc_compressed);
         // heap starts
-        debug_assert!(checksum.as_ref().len() == checksum_algo.size());
+        debug_assert!(checksum.as_ref().len() == checksum_algo.hash_len());
         writer.write_all(checksum.as_ref())?;
         if let Some(signer) = signer {
             let signature = signer

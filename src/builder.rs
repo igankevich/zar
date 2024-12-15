@@ -12,7 +12,6 @@ use std::time::SystemTime;
 use normalize_path::NormalizePath;
 
 use crate::xml;
-use crate::Checksum;
 use crate::ChecksumAlgo;
 use crate::Compression;
 use crate::FileStatus;
@@ -44,7 +43,7 @@ impl Options {
     }
 
     pub fn create<W: Write, S: Signer>(self, writer: W, signer: Option<S>) -> Builder<W, S> {
-        let toc_checksum_len = self.toc_checksum_algo.size();
+        let toc_checksum_len = self.toc_checksum_algo.hash_len();
         let offset = if let Some(ref signer) = signer {
             toc_checksum_len + signer.signature_len()
         } else {
@@ -169,11 +168,11 @@ impl<W: Write, S: Signer> Builder<W, S> {
     ) -> Result<(), Error> {
         let contents = contents.as_ref();
         let (data, archived) = if !contents.is_empty() {
-            let extracted_checksum = Checksum::new_from_data(self.file_checksum_algo, contents);
+            let extracted_checksum = self.file_checksum_algo.hash(contents);
             let mut encoder = compression.encoder(Vec::new())?;
             encoder.write_all(contents)?;
             let archived = encoder.finish()?;
-            let archived_checksum = Checksum::new_from_data(self.file_checksum_algo, &archived);
+            let archived_checksum = self.file_checksum_algo.hash(&archived);
             let data = xml::Data {
                 archived_checksum: archived_checksum.into(),
                 extracted_checksum: extracted_checksum.into(),
@@ -220,7 +219,7 @@ impl<W: Write, S: Signer> Builder<W, S> {
     }
 
     pub fn finish(mut self) -> Result<W, Error> {
-        let checksum_len = self.toc_checksum_algo.size() as u64;
+        let checksum_len = self.toc_checksum_algo.hash_len() as u64;
         let xar = xml::Xar {
             toc: xml::Toc {
                 checksum: xml::TocChecksum {

@@ -49,7 +49,7 @@ impl<R: Read + Seek> Archive<R> {
         let mut checksum_bytes = vec![0_u8; toc.checksum.size as usize];
         reader.read_exact(&mut checksum_bytes[..])?;
         let checksum = Checksum::new(toc.checksum.algo, &checksum_bytes[..])?;
-        let actual_checksum = checksum.compute(&toc_bytes[..]);
+        let actual_checksum = checksum.algo().hash(&toc_bytes[..]);
         if checksum != actual_checksum {
             return Err(Error::other("toc checksum mismatch"));
         }
@@ -190,7 +190,7 @@ impl<R: Read + Seek> Archive<R> {
         let mut file_bytes = vec![0_u8; length as usize];
         self.reader.seek(SeekFrom::Start(offset))?;
         self.reader.read_exact(&mut file_bytes[..])?;
-        let actual_checksum = archived_checksum.compute(&file_bytes[..]);
+        let actual_checksum = archived_checksum.algo().hash(&file_bytes[..]);
         if archived_checksum != actual_checksum {
             return Err(Error::other("file checksum mismatch"));
         }
@@ -304,7 +304,7 @@ mod tests {
                     reader.read_to_end(&mut buf).unwrap();
                     match entry.file().data.clone() {
                         Some(data) => {
-                            let actual_checksum = data.extracted_checksum.value.compute(&buf);
+                            let actual_checksum = data.extracted_checksum.value.algo().hash(&buf);
                             assert_eq!(
                                 data.extracted_checksum.value,
                                 actual_checksum,
