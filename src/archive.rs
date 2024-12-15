@@ -1,10 +1,12 @@
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::ffi::CStr;
 use std::fs::create_dir_all;
 use std::fs::set_permissions;
 use std::fs::File;
 use std::fs::Permissions;
 use std::io::Error;
+use std::io::ErrorKind;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
@@ -15,8 +17,15 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixDatagram;
 use std::path::Path;
 
+use base64ct::Base64;
+use base64ct::Encoding;
 use libc::makedev;
 use serde::Deserialize;
+use x509_cert::der::oid::ObjectIdentifier;
+use x509_cert::der::referenced::OwnedToRef;
+use x509_cert::der::Decode;
+use x509_cert::der::Encode;
+use x509_cert::Certificate;
 
 use crate::lchown as c_lchown;
 use crate::mkfifo;
@@ -25,11 +34,16 @@ use crate::path_to_c_string;
 use crate::set_file_modified_time;
 use crate::xml;
 use crate::Checksum;
+use crate::ChecksumAlgo;
 use crate::Compression;
+use crate::DefaultRootCertVerifier;
 use crate::FileType;
 use crate::HardLink;
 use crate::Header;
-use crate::Verifier;
+use crate::RootCertVerifier;
+use crate::RsaPublicKey;
+use crate::RsaSignature;
+use crate::RsaVerifierV2;
 use crate::XarDecoder;
 
 /// Archive reading and extraction options.
@@ -39,6 +53,7 @@ pub struct ArchiveOptions {
     preserve_owner: bool,
     check_toc: bool,
     check_files: bool,
+    verify: bool,
 }
 
 impl ArchiveOptions {
@@ -49,6 +64,7 @@ impl ArchiveOptions {
             preserve_owner: false,
             check_toc: true,
             check_files: true,
+            verify: false,
         }
     }
 
@@ -83,6 +99,14 @@ impl ArchiveOptions {
         self.check_files = value;
         self
     }
+
+    /// Verify signature.
+    ///
+    /// `false` by default.
+    pub fn verify(mut self, value: bool) -> Self {
+        self.verify = value;
+        self
+    }
 }
 
 impl Default for ArchiveOptions {
@@ -104,13 +128,13 @@ pub struct ExtendedArchive<R: Read + Seek, X = ()> {
 }
 
 impl<R: Read + Seek, X: for<'a> Deserialize<'a> + Default> ExtendedArchive<R, X> {
-    pub fn new_unsigned(reader: R, options: ArchiveOptions) -> Result<Self, Error> {
-        Self::new::<NoVerifier>(reader, None, options)
+    pub fn new(reader: R, options: ArchiveOptions) -> Result<Self, Error> {
+        Self::with_root_cert_verifier(reader, &DefaultRootCertVerifier, options)
     }
 
-    pub fn new<V: Verifier>(
+    pub fn with_root_cert_verifier<V: RootCertVerifier>(
         mut reader: R,
-        verifier: Option<&V>,
+        root_cert_verifier: &V,
         options: ArchiveOptions,
     ) -> Result<Self, Error> {
         let header = Header::read(&mut reader)?;
@@ -128,17 +152,87 @@ impl<R: Read + Seek, X: for<'a> Deserialize<'a> + Default> ExtendedArchive<R, X>
                 return Err(Error::other("toc checksum mismatch"));
             }
         }
-        if let Some(verifier) = verifier {
-            let signature_bytes = match toc.signature {
+        if options.verify {
+            let (signature_bytes, mut certs) = match toc.signature {
                 Some(signature) => {
                     reader.seek(SeekFrom::Start(heap_offset + signature.offset))?;
                     let mut signature_bytes = vec![0_u8; signature.size as usize];
                     reader.read_exact(&mut signature_bytes[..])?;
-                    signature_bytes
+                    (signature_bytes, signature.key_info.data.certificates)
                 }
-                None => Vec::new(),
+                None => (Vec::new(), Vec::new()),
             };
-            verifier.verify(&checksum_bytes, &signature_bytes)?;
+            let mut signature: RsaSignature = signature_bytes[..]
+                .try_into()
+                .map_err(|_| Error::other("invalid signature"))?;
+            let mut certificates = VecDeque::new();
+            for cert in certs.iter_mut() {
+                cert.data.retain(|ch| !ch.is_whitespace());
+                let der = Base64::decode_vec(&cert.data).map_err(|_| ErrorKind::InvalidData)?;
+                let certificate =
+                    Certificate::from_der(&der).map_err(|_| ErrorKind::InvalidData)?;
+                let rsa_public_key: RsaPublicKey = certificate
+                    .tbs_certificate
+                    .subject_public_key_info
+                    .owned_to_ref()
+                    .try_into()
+                    .map_err(Error::other)?;
+                let signature_algo: ChecksumAlgo = match certificate.signature_algorithm.oid {
+                    RSA_SHA1_OID => ChecksumAlgo::Sha1,
+                    RSA_SHA256_OID => ChecksumAlgo::Sha256,
+                    _ => return Err(Error::other("unsupported signature algorithm")),
+                };
+                let rsa_signature: RsaSignature = certificate
+                    .signature
+                    .as_bytes()
+                    .unwrap()
+                    .try_into()
+                    .map_err(|_| ErrorKind::InvalidData)?;
+                let cert_data = certificate
+                    .tbs_certificate
+                    .to_der()
+                    .map_err(|_| ErrorKind::InvalidData)?;
+                certificates.push_back((
+                    rsa_public_key,
+                    cert_data,
+                    signature_algo,
+                    rsa_signature,
+                    certificate,
+                ));
+            }
+            let (
+                rsa_public_key,
+                mut cert_data,
+                mut signature_algo,
+                next_signature,
+                mut certificate,
+            ) = certificates
+                .pop_front()
+                .ok_or_else(|| Error::other("no certificates found"))?;
+            let verifier = RsaVerifierV2::new(toc.checksum.algo, rsa_public_key)?;
+            verifier.verify(&toc_bytes, &signature)?;
+            signature = next_signature;
+            let mut last_rsa_public_key = verifier.into_inner();
+            while let Some((
+                rsa_public_key,
+                next_cert_data,
+                next_signature_algo,
+                next_signature,
+                next_certificate,
+            )) = certificates.pop_front()
+            {
+                let verifier = RsaVerifierV2::new(signature_algo, rsa_public_key)?;
+                verifier.verify(&cert_data, &signature)?;
+                cert_data = next_cert_data;
+                signature = next_signature;
+                signature_algo = next_signature_algo;
+                certificate = next_certificate;
+                last_rsa_public_key = verifier.into_inner();
+            }
+            // self-signed
+            let verifier = RsaVerifierV2::new(signature_algo, last_rsa_public_key)?;
+            verifier.verify(&cert_data, &signature)?;
+            root_cert_verifier.verify(&certificate)?;
         }
         Ok(Self {
             files: toc.files,
@@ -303,10 +397,6 @@ fn seek_to_file<R: Read + Seek>(
     if check_files {
         let actual_checksum = archived_checksum.algo().hash(&file_bytes[..]);
         if archived_checksum != &actual_checksum {
-            eprintln!(
-                "expected = {}, actual = {}",
-                archived_checksum, actual_checksum
-            );
             return Err(Error::other("file checksum mismatch"));
         }
     }
@@ -359,54 +449,97 @@ impl<'a, R: Read + Seek, X> Entry<'a, R, X> {
     }
 }
 
-// A stub to read unsigned archives.
-pub struct NoVerifier;
-
-impl Verifier for NoVerifier {
-    fn verify(&self, _data: &[u8], _signature: &[u8]) -> Result<(), Error> {
-        Ok(())
-    }
-}
+pub const RSA_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.1");
+pub const RSA_SHA1_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.5");
+pub const RSA_SHA256_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.11");
 
 #[cfg(test)]
 mod tests {
     use std::fs::File;
     use std::sync::Once;
+    use std::time::Duration;
 
     use arbtest::arbtest;
     use random_dir::DirBuilder;
+    use rsa::pkcs1v15::SigningKey;
     use rsa::rand_core::OsRng;
+    use rsa::signature::Keypair;
     use tempfile::TempDir;
+    use x509_cert::builder::Builder;
+    use x509_cert::spki::EncodePublicKey;
 
     use super::*;
-    use crate::ExtendedBuilder;
+    use crate::BuilderOptions;
     use crate::NoSigner;
-    use crate::RsaKeypair;
     use crate::RsaPrivateKey;
     use crate::RsaSigner;
     use crate::Signer;
 
     #[test]
+    fn xar_read() {
+        let file = File::open("pkgs/Command Line Tools.pkg").unwrap();
+        let _archive = crate::Archive::new(file, Default::default()).unwrap();
+    }
+
+    #[test]
     fn xar_unsigned_write_read() {
-        test_xar_write_read(NoSigner, NoVerifier);
+        test_xar_write_read(NoSigner, TrustAll, false, ChecksumAlgo::Sha256);
     }
 
     #[test]
     fn xar_signed_write_read() {
+        use x509_cert::builder::{CertificateBuilder, Profile};
+        use x509_cert::name::Name;
+        use x509_cert::serial_number::SerialNumber;
+        use x509_cert::spki::SubjectPublicKeyInfoOwned;
+        use x509_cert::time::Validity;
         let private_key = RsaPrivateKey::new(&mut OsRng, 2048).unwrap();
-        let signer = RsaSigner::new(private_key);
-        let verifier = signer.verifying_key();
-        test_xar_write_read(signer, verifier);
+        let signing_key = SigningKey::<sha1::Sha1>::new(private_key);
+        let public_key_der = signing_key.verifying_key().to_public_key_der().unwrap();
+        let serial_number = SerialNumber::from(0_u32);
+        let validity = Validity::from_now(Duration::new(5, 0)).unwrap();
+        let profile = Profile::Root;
+        let subject: Name = "CN=Zar,O=Zar,C=Zar".parse().unwrap();
+        let subject_public_key_info =
+            SubjectPublicKeyInfoOwned::try_from(public_key_der.as_bytes()).unwrap();
+        let actual = subject_public_key_info.to_der().unwrap();
+        let builder = CertificateBuilder::new(
+            profile,
+            serial_number,
+            validity,
+            subject,
+            subject_public_key_info,
+            &signing_key,
+        )
+        .unwrap();
+        let cert = builder.build_with_rng::<RsaSignature>(&mut OsRng).unwrap();
+        let expected = signing_key
+            .verifying_key()
+            .to_public_key_der()
+            .unwrap()
+            .to_vec();
+        assert_eq!(expected, actual);
+        let verifier = TrustCert(cert.clone());
+        let checksum_algo = ChecksumAlgo::Sha1;
+        let signer = RsaSigner::with_sha1(signing_key, vec![cert]);
+        test_xar_write_read(signer, verifier, true, checksum_algo);
     }
 
-    fn test_xar_write_read<S: Signer, V: Verifier>(signer: S, verifier: V) {
+    fn test_xar_write_read<S: Signer, V: RootCertVerifier>(
+        signer: S,
+        root_cert_verifier: V,
+        verify: bool,
+        toc_checksum_algo: ChecksumAlgo,
+    ) {
         do_not_truncate_assertions();
         let workdir = TempDir::new().unwrap();
         arbtest(|u| {
             let directory = DirBuilder::new().printable_names(true).create(u)?;
             let extra = u.arbitrary()?;
             let xar_path = workdir.path().join("test.xar");
-            let mut xar = ExtendedBuilder::new(File::create(&xar_path).unwrap(), Some(&signer));
+            let mut xar = BuilderOptions::new()
+                .toc_checksum_algo(toc_checksum_algo)
+                .create(File::create(&xar_path).unwrap(), Some(&signer));
             xar.append_dir_all(
                 directory.path(),
                 Compression::Gzip,
@@ -416,10 +549,10 @@ mod tests {
             let expected_files = xar.files().to_vec();
             xar.finish().unwrap();
             let reader = File::open(&xar_path).unwrap();
-            let mut xar_archive = ExtendedArchive::<std::fs::File, u64>::new(
+            let mut xar_archive = ExtendedArchive::<std::fs::File, u64>::with_root_cert_verifier(
                 reader,
-                Some(&verifier),
-                Default::default(),
+                &root_cert_verifier,
+                ArchiveOptions::new().verify(verify),
             )
             .unwrap();
             let mut actual_files = Vec::new();
@@ -453,6 +586,35 @@ mod tests {
             similar_asserts::assert_eq!(expected_files, actual_files);
             Ok(())
         });
+    }
+
+    struct TrustCert(Certificate);
+
+    impl RootCertVerifier for TrustCert {
+        fn verify(&self, candidate: &Certificate) -> Result<(), Error> {
+            if candidate
+                .tbs_certificate
+                .subject_public_key_info
+                .subject_public_key
+                == self
+                    .0
+                    .tbs_certificate
+                    .subject_public_key_info
+                    .subject_public_key
+            {
+                return Ok(());
+            }
+            Err(Error::other("root certificate verification error"))
+        }
+    }
+
+    #[derive(Default)]
+    struct TrustAll;
+
+    impl RootCertVerifier for TrustAll {
+        fn verify(&self, _candidate: &Certificate) -> Result<(), Error> {
+            Ok(())
+        }
     }
 
     fn do_not_truncate_assertions() {

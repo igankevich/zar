@@ -6,64 +6,92 @@ use std::process::ExitCode;
 use std::str::FromStr;
 
 use clap::Parser;
+use clap::ValueEnum;
+use x509_cert::der::Decode;
+use x509_cert::Certificate;
 use zar::DecodeRsaPrivateKey;
-use zar::DecodeRsaPublicKey;
 
 #[derive(Parser)]
-#[clap(arg_required_else_help = true, about = "XAR archiver and unarchiver")]
+#[clap(arg_required_else_help = true, about = "XAR archiver and extractor")]
 struct Args {
     /// Create an archive.
     #[arg(short = 'c')]
     create: bool,
+
     /// Extract an archive.
     #[arg(short = 'x')]
     extract: bool,
+
     /// List an archive.
     #[arg(short = 't')]
     list: bool,
+
     /// Verbose output.
     #[arg(short = 'v')]
     verbose: bool,
+
     /// Extract to specified directory instead of the current directory.
     #[arg(short = 'C')]
     chdir: Option<PathBuf>,
+
     /// An archive.
     #[arg(short = 'f')]
     file_name: PathBuf,
+
     /// Use specified compression codec.
-    #[arg(value_enum, long = "compression")]
+    #[arg(value_enum, long = "compression", value_name = "CODEC")]
     compression: Option<Compression>,
+
     /// Use LZMA compression.
     #[arg(short = 'a')]
     lzma: bool,
+
+    /// Use BZIP2 compression.
     #[arg(short = 'j')]
     bzip2: bool,
+
+    /// Use GZIP compression.
     #[arg(short = 'z')]
     gzip: bool,
+
     /// XML header checksum.
-    #[arg(long = "toc-cksum", default_value = "sha256")]
+    #[arg(long = "toc-cksum", default_value = "sha1", value_name = "ALGO")]
     toc_checksum: ChecksumAlgo,
+
     /// File checksum.
-    #[arg(long = "file-cksum", default_value = "sha256")]
+    #[arg(long = "file-cksum", default_value = "sha1", value_name = "ALGO")]
     file_checksum: ChecksumAlgo,
+
     /// Path to a file with DER-encoded RSA private key.
-    #[arg(long = "sign")]
+    #[arg(long = "sign", value_name = "FILE")]
     signing_key_file: Option<PathBuf>,
-    /// Path to a file with DER-encoded RSA public key.
-    #[arg(long = "verify")]
-    verifying_key_file: Option<PathBuf>,
+
+    /// DER-encoded X509 certificate chain to include in the archive.
+    ///
+    /// The first certificate must correspond to the signing key.
+    #[arg(long = "cert", value_name = "CERT")]
+    certs: Vec<PathBuf>,
+
+    /// DER-encoded X509 root certificates to verify the archive's certificate chain on reading.
+    #[arg(long = "trust", value_name = "CERT")]
+    trusted_certs: Vec<PathBuf>,
+
     /// Preserve files' last modification time.
     #[arg(long = "preserve-mtime", default_value = "true")]
     preserve_mtime: bool,
+
     /// Preserve files' owner.
-    #[arg(long = "preserve-owner")]
+    #[arg(long = "preserve-owner", action = clap::ArgAction::SetTrue)]
     preserve_owner: Option<bool>,
+
     /// Verify table of contents' checksum.
     #[arg(long = "check-toc", default_value = "true")]
     check_toc: bool,
+
     /// Verify files' checksums.
     #[arg(long = "check-files", default_value = "true")]
     check_files: bool,
+
     /// Files.
     #[arg(
         trailing_var_arg = true,
@@ -86,7 +114,9 @@ impl Args {
         }
     }
     fn compression(&self) -> Result<Compression, Error> {
-        use Compression::*;
+        use Compression::Bzip2;
+        use Compression::Gzip;
+        use Compression::Lzma;
         const T: bool = true;
         const F: bool = false;
         match (self.gzip, self.bzip2, self.lzma, self.compression) {
@@ -125,14 +155,21 @@ fn do_main() -> Result<ExitCode, Error> {
 fn create(args: Args) -> Result<ExitCode, Error> {
     let compression: zar::Compression = args.compression()?.into();
     let file = File::create(&args.file_name)?;
+    let toc_checksum_algo: zar::ChecksumAlgo = args.toc_checksum.into();
     let options = zar::BuilderOptions::new()
-        .toc_checksum_algo(args.toc_checksum.into())
+        .toc_checksum_algo(toc_checksum_algo)
         .file_checksum_algo(args.file_checksum.into());
     let mut builder = match args.signing_key_file {
         Some(ref signing_key_file) => {
             let private_key =
                 zar::RsaPrivateKey::read_pkcs1_der_file(signing_key_file).map_err(Error::other)?;
-            let signer = zar::RsaSigner::new(private_key);
+            let mut certs = Vec::new();
+            for cert_path in args.certs.iter() {
+                let der = std::fs::read(cert_path)?;
+                let cert = Certificate::from_der(&der).map_err(Error::other)?;
+                certs.push(cert);
+            }
+            let signer = zar::RsaSigner::new(toc_checksum_algo, private_key, certs)?;
             options.create(file, Some(signer))
         }
         None => options.create(file, None),
@@ -154,21 +191,23 @@ fn extract(args: Args) -> Result<ExitCode, Error> {
         .map(|x| x.as_path())
         .unwrap_or(Path::new("."));
     let file = File::open(&args.file_name)?;
-    let verifier = match args.verifying_key_file {
-        Some(ref verifying_key_file) => {
-            let public_key =
-                zar::RsaPublicKey::read_pkcs1_der_file(verifying_key_file).map_err(Error::other)?;
-            let verifier = zar::RsaVerifier::new(public_key);
-            Some(verifier)
+    let (verifier, verify) = {
+        let mut certs = Vec::new();
+        for cert_path in args.trusted_certs.iter() {
+            let der = std::fs::read(cert_path)?;
+            let cert = Certificate::from_der(&der).map_err(Error::other)?;
+            certs.push(cert);
         }
-        None => None,
+        let verify = !certs.is_empty();
+        (zar::TrustCerts::new(certs), verify)
     };
     let options = zar::ArchiveOptions::new()
         .check_toc(args.check_toc)
         .check_files(args.check_files)
         .preserve_mtime(args.preserve_mtime)
-        .preserve_owner(args.preserve_owner.unwrap_or_else(can_chown));
-    let archive = zar::Archive::new(file, verifier.as_ref(), options)?;
+        .preserve_owner(args.preserve_owner.unwrap_or_else(can_chown))
+        .verify(verify);
+    let archive = zar::Archive::with_root_cert_verifier(file, &verifier, options)?;
     archive.extract(dest_dir)?;
     Ok(ExitCode::SUCCESS)
 }
@@ -183,9 +222,9 @@ enum Command {
     List,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Compression {
-    No,
+    None,
     Gzip,
     Bzip2,
     Lzma,
@@ -197,7 +236,7 @@ impl FromStr for Compression {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "none" => Ok(Compression::No),
+            "none" => Ok(Compression::None),
             "gzip" => Ok(Compression::Gzip),
             "bzip2" => Ok(Compression::Bzip2),
             "lzma" => Ok(Compression::Lzma),
@@ -210,7 +249,7 @@ impl FromStr for Compression {
 impl From<Compression> for zar::Compression {
     fn from(other: Compression) -> Self {
         match other {
-            Compression::No => zar::Compression::None,
+            Compression::None => zar::Compression::None,
             Compression::Gzip => zar::Compression::Gzip,
             Compression::Bzip2 => zar::Compression::Bzip2,
             Compression::Lzma => panic!("lzma is not supported"),
@@ -219,7 +258,7 @@ impl From<Compression> for zar::Compression {
     }
 }
 
-#[derive(Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum ChecksumAlgo {
     Md5,
     Sha1,

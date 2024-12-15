@@ -18,6 +18,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.5.23", features = ["derive"] }
+x509-cert = "0.2.5"
 zar = { path = ".." }
 
 [target.'cfg(target_os = "linux")'.dependencies]

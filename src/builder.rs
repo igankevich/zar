@@ -7,9 +7,13 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
+use base64ct::Base64;
+use base64ct::Encoding;
 use normalize_path::NormalizePath;
 use serde::Deserialize;
 use serde::Serialize;
+use x509_cert::der::Encode;
+use x509_cert::Certificate;
 
 use crate::xml;
 use crate::ChecksumAlgo;
@@ -254,7 +258,21 @@ impl<W: Write, S: Signer, X: Serialize + for<'a> Deserialize<'a> + Default>
                     key_info: xml::KeyInfo {
                         data: xml::X509Data {
                             // TODO certs
-                            certificates: Default::default(),
+                            certificates: self
+                                .signer
+                                .as_ref()
+                                .map(|signer| {
+                                    signer
+                                        .certs()
+                                        .iter()
+                                        .map(|cert| {
+                                            let bytes = cert.to_der().unwrap();
+                                            let string = Base64::encode_string(&bytes);
+                                            xml::X509Certificate { data: string }
+                                        })
+                                        .collect()
+                                })
+                                .unwrap_or_default(),
                         },
                     },
                 }),
@@ -288,6 +306,10 @@ impl Signer for NoSigner {
 
     fn signature_len(&self) -> usize {
         0
+    }
+
+    fn certs(&self) -> &[Certificate] {
+        &[]
     }
 }
 

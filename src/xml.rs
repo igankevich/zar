@@ -56,8 +56,6 @@ impl<X: Serialize + Default> Xar<X> {
         let mut toc_uncompressed = String::new();
         toc_uncompressed.push_str(XML_DECLARATION);
         to_writer(&mut toc_uncompressed, self).map_err(Error::other)?;
-        #[cfg(debug_assertions)]
-        eprintln!("write toc {}", toc_uncompressed);
         let toc_len_uncompressed = toc_uncompressed.as_bytes().len();
         let mut encoder = ZlibEncoder::new(Vec::new(), flate2::Compression::best());
         encoder.write_all(toc_uncompressed.as_bytes())?;
@@ -75,7 +73,7 @@ impl<X: Serialize + Default> Xar<X> {
         writer.write_all(checksum.as_ref())?;
         if let Some(signer) = signer {
             let signature = signer
-                .sign(checksum.as_ref())
+                .sign(&toc_compressed)
                 .map_err(|_| Error::other("failed to sign"))?;
             writer.write_all(&signature)?;
         }
