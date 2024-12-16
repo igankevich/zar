@@ -36,6 +36,7 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get -qq install --no-install-recommends \
     liblzma-dev \
     libbz2-dev \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
 RUN git clone https://github.com/mackyle/xar /tmp/xar \
@@ -47,8 +48,6 @@ RUN git clone https://github.com/mackyle/xar /tmp/xar \
     && make install \
     && cd /tmp \
     && rm -rf /tmp/xar
-
-COPY --from=ghcr.io/staex-io/cijail:latest / /usr/local
 
 LABEL org.opencontainers.image.source=https://github.com/igankevich/zar
 LABEL org.opencontainers.image.description="CI image"
