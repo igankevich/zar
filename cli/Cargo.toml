@@ -7,8 +7,8 @@ homepage = "https://github.com/igankevich/zar"
 repository = "https://github.com/igankevich/zar"
 documentation = "https://docs.rs/zar-cli"
 readme = "../README.md"
-description = "A command-line utility for reading and writing MacOS XAR files."
-keywords = ["bom", "bill-of-materials", "mkbom", "lsbom"]
+description = "A command-line utility for reading and writing MacOS signed XAR archives."
+keywords = ["xar", "pkg", "apple", "sign"]
 categories = ["encoding", "filesystem", "command-line-utilities"]
 include = ["**/*.rs", "Cargo.toml", "../README.md", "LICENSE"]
 
@@ -18,12 +18,19 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.5.23", features = ["derive"] }
-zar = { path = ".." }
+libc = "0.2.168"
+x509-cert = "0.2.5"
+zar.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+caps = "0.5.5"
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+libc = "0.2.168"
 
 [dev-dependencies]
 arbitrary = { version = "1.4.1", features = ["derive"] }
 arbtest = "0.3.1"
-libc = "0.2.168"
 random-dir = "0.2.4"
 similar-asserts = "1.6.0"
 tempfile = "3.14.0"

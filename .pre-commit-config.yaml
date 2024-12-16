@@ -10,13 +10,13 @@ repos:
       - id: cargo-check
         name: cargo check
         language: system
-        entry: cargo check --tests --workspace --quiet
+        entry: cargo check --all-targets --all-features --workspace --quiet
         types: [rust]
         pass_filenames: false
       - id: cargo-clippy
         name: cargo clippy
         language: system
-        entry: cargo clippy --tests --workspace -- -D warnings
+        entry: cargo clippy --all-targets --all-features --workspace -- -D warnings
         types: [rust]
         pass_filenames: false
       - id: shellcheck

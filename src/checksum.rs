@@ -1,5 +1,10 @@
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::io::Error;
+use std::io::ErrorKind;
+use std::str::FromStr;
 
+use base16ct::HexDisplay;
 use digest::Digest;
 use serde::Deserialize;
 use serde::Serialize;
@@ -7,42 +12,38 @@ use sha1::Sha1;
 use sha2::Sha256;
 use sha2::Sha512;
 
+/// A hash that is used to verify archive metadata and file contents.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(test, derive(arbitrary::Arbitrary))]
 #[serde(into = "String", try_from = "String")]
 pub enum Checksum {
+    /// No hashing.
     None,
+    /// MD5 hash.
     Md5([u8; MD5_LEN]),
+    /// SHA1 hash.
     Sha1([u8; SHA1_LEN]),
+    /// SHA256 hash.
     Sha256([u8; SHA256_LEN]),
+    /// SHA512 hash.
     Sha512([u8; SHA512_LEN]),
 }
 
 impl Checksum {
-    pub fn new(algo: ChecksumAlgo, data: &[u8]) -> Result<Self, Error> {
+    /// Create a new hash from the specified algorithm and its pre-computed binary representation.
+    pub fn new(algo: ChecksumAlgo, hash: &[u8]) -> Result<Self, Error> {
         use ChecksumAlgo::*;
         Ok(match algo {
             None => Self::None,
-            Md5 => Self::Md5(
-                data.try_into()
-                    .map_err(|_| Error::other("invalid sha1 length"))?,
-            ),
-            Sha1 => Self::Sha1(
-                data.try_into()
-                    .map_err(|_| Error::other("invalid sha1 length"))?,
-            ),
-            Sha256 => Self::Sha256(
-                data.try_into()
-                    .map_err(|_| Error::other("invalid sha256 length"))?,
-            ),
-            Sha512 => Self::Sha512(
-                data.try_into()
-                    .map_err(|_| Error::other("invalid sha512 length"))?,
-            ),
+            Md5 => Self::Md5(hash.try_into().map_err(|_| ErrorKind::InvalidData)?),
+            Sha1 => Self::Sha1(hash.try_into().map_err(|_| ErrorKind::InvalidData)?),
+            Sha256 => Self::Sha256(hash.try_into().map_err(|_| ErrorKind::InvalidData)?),
+            Sha512 => Self::Sha512(hash.try_into().map_err(|_| ErrorKind::InvalidData)?),
         })
     }
 
-    pub fn new_from_data(algo: ChecksumAlgo, data: &[u8]) -> Self {
+    /// Hash the data using the specified algorithm.
+    pub fn compute(algo: ChecksumAlgo, data: &[u8]) -> Self {
         match algo {
             ChecksumAlgo::None => Self::None,
             ChecksumAlgo::Md5 => Self::Md5(md5::compute(data).into()),
@@ -52,16 +53,7 @@ impl Checksum {
         }
     }
 
-    pub fn compute(&self, data: &[u8]) -> Self {
-        match self {
-            Self::None => Self::None,
-            Self::Md5(..) => Self::Md5(md5::compute(data).into()),
-            Self::Sha1(..) => Self::Sha1(Sha1::digest(data).into()),
-            Self::Sha256(..) => Self::Sha256(Sha256::digest(data).into()),
-            Self::Sha512(..) => Self::Sha512(Sha512::digest(data).into()),
-        }
-    }
-
+    /// Get hash algorithm.
     pub fn algo(&self) -> ChecksumAlgo {
         match self {
             Self::None => ChecksumAlgo::None,
@@ -73,34 +65,41 @@ impl Checksum {
     }
 }
 
+impl FromStr for Checksum {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        macro_rules! decode_hex {
+            ($string:expr, $len:expr) => {{
+                use base16ct::mixed::decode;
+                let mut bytes = [0_u8; $len];
+                decode($string, &mut bytes[..]).map_err(|_| ErrorKind::InvalidData)?;
+                bytes
+            }};
+        }
+
+        let s = s.trim();
+        match s.len() {
+            0 => Ok(Self::None),
+            MD5_HEX_LEN => Ok(Self::Md5(decode_hex!(s, MD5_LEN))),
+            SHA1_HEX_LEN => Ok(Self::Sha1(decode_hex!(s, SHA1_LEN))),
+            SHA256_HEX_LEN => Ok(Self::Sha256(decode_hex!(s, SHA256_LEN))),
+            SHA512_HEX_LEN => Ok(Self::Sha512(decode_hex!(s, SHA512_LEN))),
+            _ => Err(ErrorKind::InvalidData.into()),
+        }
+    }
+}
+
+impl Display for Checksum {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        write!(f, "{:x}", HexDisplay(self.as_ref()))
+    }
+}
+
 impl TryFrom<String> for Checksum {
     type Error = Error;
     fn try_from(other: String) -> Result<Self, Self::Error> {
-        use base16ct::mixed::decode;
-        let other = other.trim();
-        match other.len() {
-            MD5_HEX_LEN => {
-                let mut bytes = [0_u8; MD5_LEN];
-                decode(other, &mut bytes[..]).map_err(|_| Error::other("invalid md5 string"))?;
-                Ok(Self::Md5(bytes))
-            }
-            SHA1_HEX_LEN => {
-                let mut bytes = [0_u8; SHA1_LEN];
-                decode(other, &mut bytes[..]).map_err(|_| Error::other("invalid sha1 string"))?;
-                Ok(Self::Sha1(bytes))
-            }
-            SHA256_HEX_LEN => {
-                let mut bytes = [0_u8; SHA256_LEN];
-                decode(other, &mut bytes[..]).map_err(|_| Error::other("invalid sha256 string"))?;
-                Ok(Self::Sha256(bytes))
-            }
-            SHA512_HEX_LEN => {
-                let mut bytes = [0_u8; SHA512_LEN];
-                decode(other, &mut bytes[..]).map_err(|_| Error::other("invalid sha512 string"))?;
-                Ok(Self::Sha512(bytes))
-            }
-            _ => Err(Error::other("invalid hash length")),
-        }
+        other.as_str().parse()
     }
 }
 
@@ -130,21 +129,33 @@ impl AsRef<[u8]> for Checksum {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
-#[cfg_attr(test, derive(arbitrary::Arbitrary, PartialEq, Eq))]
+/// Hash algorithm of [`Checksum`].
+#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(test, derive(arbitrary::Arbitrary))]
 #[serde(rename_all = "lowercase")]
 #[repr(u32)]
 pub enum ChecksumAlgo {
+    /// No hashing.
     None = 0,
+    /// SHA1 hash.
     Sha1 = 1,
+    /// MD5 hash.
     Md5 = 2,
+    /// SHA256 hash.
     #[default]
     Sha256 = 3,
+    /// SHA512 hash.
     Sha512 = 4,
 }
 
 impl ChecksumAlgo {
-    pub fn size(self) -> usize {
+    /// Hash the data.
+    pub fn hash(self, data: &[u8]) -> Checksum {
+        Checksum::compute(self, data)
+    }
+
+    /// Get hash size.
+    pub fn hash_len(self) -> usize {
         use ChecksumAlgo::*;
         match self {
             None => 0,
@@ -153,6 +164,12 @@ impl ChecksumAlgo {
             Sha256 => SHA256_LEN,
             Sha512 => SHA512_LEN,
         }
+    }
+}
+
+impl From<ChecksumAlgo> for u32 {
+    fn from(other: ChecksumAlgo) -> u32 {
+        other as u32
     }
 }
 
@@ -179,3 +196,73 @@ const MD5_HEX_LEN: usize = 2 * MD5_LEN;
 const SHA1_HEX_LEN: usize = 2 * SHA1_LEN;
 const SHA256_HEX_LEN: usize = 2 * SHA256_LEN;
 const SHA512_HEX_LEN: usize = 2 * SHA512_LEN;
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::panic)]
+    use arbtest::arbtest;
+
+    use super::*;
+
+    #[test]
+    fn to_string_parse_symmetry() {
+        arbtest(|u| {
+            let expected: Checksum = u.arbitrary()?;
+            let string = expected.to_string();
+            let actual: Checksum = string
+                .parse()
+                .inspect_err(|_| panic!("failed to parse {:?} as {:?}", string, expected))
+                .unwrap();
+            assert_eq!(expected, actual);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn try_from_string_into_string_symmetry() {
+        arbtest(|u| {
+            let expected: Checksum = u.arbitrary()?;
+            let string: String = expected.clone().into();
+            let actual: Checksum = string
+                .clone()
+                .try_into()
+                .inspect_err(|_| panic!("failed to parse {:?} as {:?}", string, expected))
+                .unwrap();
+            assert_eq!(expected, actual);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn new_as_ref_compatibility() {
+        arbtest(|u| {
+            let expected: Checksum = u.arbitrary()?;
+            let actual = Checksum::new(expected.algo(), expected.as_ref()).unwrap();
+            assert_eq!(expected, actual);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn hash_len_as_ref_len_equality() {
+        arbtest(|u| {
+            let c: Checksum = u.arbitrary()?;
+            assert_eq!(c.algo().hash_len(), c.as_ref().len());
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn try_from_u32_into_u32_symmetry() {
+        arbtest(|u| {
+            let expected: ChecksumAlgo = u.arbitrary()?;
+            let number: u32 = expected.into();
+            let actual: ChecksumAlgo = number
+                .try_into()
+                .inspect_err(|_| panic!("failed to parse {:?} as {:?}", number, expected))
+                .unwrap();
+            assert_eq!(expected, actual);
+            Ok(())
+        });
+    }
+}

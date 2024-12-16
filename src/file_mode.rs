@@ -1,16 +1,21 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::io::Error;
+use std::io::ErrorKind;
 use std::str::FromStr;
 
 use serde::Deserialize;
 use serde::Serialize;
 
+/// File mode.
+///
+/// Does not include file type.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[serde(into = "String", try_from = "String")]
 pub struct FileMode(u32);
 
 impl FileMode {
+    /// Convert into inner representation.
     pub fn into_inner(self) -> u32 {
         self.0
     }
@@ -26,7 +31,7 @@ impl FromStr for FileMode {
     type Err = Error;
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         Ok(Self(
-            u32::from_str_radix(value, 8).map_err(|_| Error::other("invalid file mode"))?,
+            u32::from_str_radix(value, 8).map_err(|_| ErrorKind::InvalidData)?,
         ))
     }
 }
