@@ -37,6 +37,8 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     liblzma-dev \
     libbz2-dev \
     jq \
+    musl-dev \
+    musl-tools \
     && rm -rf /var/lib/apt/lists/*
 
 RUN git clone https://github.com/mackyle/xar /tmp/xar \
