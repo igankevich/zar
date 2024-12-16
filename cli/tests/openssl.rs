@@ -32,7 +32,7 @@ fn sign_verify() {
         .arg("-sha1")
         .arg("-days")
         .arg("1")
-        .arg("-nodes")
+        .arg("-noenc")
         .arg("-key")
         .arg(&private_key_pem)
         .arg("-out")

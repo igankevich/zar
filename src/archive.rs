@@ -38,12 +38,12 @@ use crate::xml;
 use crate::Checksum;
 use crate::ChecksumAlgo;
 use crate::Compression;
-use crate::DefaultRootCertVerifier;
 use crate::FileType;
 use crate::HardLink;
 use crate::Header;
 use crate::RootCertVerifier;
 use crate::RsaVerifier;
+use crate::TrustAny;
 use crate::XarDecoder;
 
 /// Archive reading and extraction options.
@@ -100,7 +100,7 @@ impl ArchiveOptions {
         self
     }
 
-    /// Verify signature.
+    /// Verify archive's signature.
     ///
     /// `false` by default.
     pub fn verify(mut self, value: bool) -> Self {
@@ -115,7 +115,7 @@ impl Default for ArchiveOptions {
     }
 }
 
-/// An archive without any extra data.
+/// XAR archive without any extra data.
 pub type Archive<R> = ExtendedArchive<R, ()>;
 
 /// XAR archive with extra data.
@@ -129,10 +129,16 @@ pub struct ExtendedArchive<R: Read + Seek, X = ()> {
 }
 
 impl<R: Read + Seek, X: for<'a> Deserialize<'a> + Default> ExtendedArchive<R, X> {
-    /// Create new archive with the [default](crate::DefaultRootCertVerifier) root certificate
-    /// verifier.
-    pub fn new(reader: R, options: ArchiveOptions) -> Result<Self, Error> {
-        Self::with_root_cert_verifier(reader, &DefaultRootCertVerifier, options)
+    /// Create new archive with the [default](crate::TrustAny) root certificate
+    /// verifier and non-default options.
+    pub fn with_options(reader: R, options: ArchiveOptions) -> Result<Self, Error> {
+        Self::with_root_cert_verifier(reader, &TrustAny, options)
+    }
+
+    /// Create new archive with the [default](crate::TrustAny) root certificate
+    /// verifier and default options.
+    pub fn new(reader: R) -> Result<Self, Error> {
+        Self::with_options(reader, Default::default())
     }
 
     /// Create new archive with the specified root certificate verifier.
@@ -452,7 +458,7 @@ impl<'a, R: Read + Seek, X> Entry<'a, R, X> {
             None if file.kind == FileType::File
                 || file.kind == FileType::HardLink(HardLink::Original) =>
             {
-                // The `Data` may not be stored for empty files.
+                // The `FileData` may not be stored for empty files.
                 let compression = Compression::None;
                 Ok(Some(
                     compression.decoder(self.archive.reader.by_ref().take(0)),
@@ -493,12 +499,6 @@ mod tests {
     use crate::NoSigner;
     use crate::RsaSigner;
     use crate::Signer;
-
-    #[test]
-    fn xar_read() {
-        let file = File::open("pkgs/Command Line Tools.pkg").unwrap();
-        let _archive = crate::Archive::new(file, Default::default()).unwrap();
-    }
 
     #[test]
     fn xar_unsigned_write_read() {

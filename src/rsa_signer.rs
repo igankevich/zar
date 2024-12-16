@@ -17,7 +17,7 @@ use x509_cert::Certificate;
 use crate::ChecksumAlgo;
 use crate::Signer;
 
-/// The implementation of [`Signer`](crate::Signer) that uses RSA key to sign the archive.
+/// Archive [`Signer`](crate::Signer) that uses RSA key to sign the archive.
 pub struct RsaSigner {
     signing_key: SigningKeyInner,
     certs: Vec<Certificate>,

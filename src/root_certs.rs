@@ -1,20 +1,6 @@
 use std::io::Error;
-use std::ops::Deref;
-use std::sync::LazyLock;
 
-use x509_cert::der::asn1::BitString;
-use x509_cert::der::Decode;
 use x509_cert::Certificate;
-
-#[cfg(feature = "apple-root-cert")]
-#[allow(clippy::expect_used)]
-pub(crate) static APPLE_ROOT_PUBLIC_KEY: LazyLock<BitString> = LazyLock::new(|| {
-    let der = include_bytes!("../certs/apple.der");
-    let cert = Certificate::from_der(&der[..]).expect("Failed to parse Apple root certificate");
-    cert.tbs_certificate
-        .subject_public_key_info
-        .subject_public_key
-});
 
 /// Root certificate verifier.
 ///
@@ -25,31 +11,18 @@ pub trait RootCertVerifier {
     fn verify(&self, candidate: &Certificate) -> Result<(), Error>;
 }
 
-/// Default root certificate verifier implementation.
-///
-/// Trusts only Apple root certificate when feature `apple-root-cert` is enabled,
-/// otherwise trusts none.
-#[derive(Default)]
-pub struct DefaultRootCertVerifier;
+/// A [`RootCertVerifier`] that trusts any certificate.
+pub struct TrustAny;
 
-impl RootCertVerifier for DefaultRootCertVerifier {
-    fn verify(&self, candidate: &Certificate) -> Result<(), Error> {
-        #[cfg(feature = "apple-root-cert")]
-        if &candidate
-            .tbs_certificate
-            .subject_public_key_info
-            .subject_public_key
-            == APPLE_ROOT_PUBLIC_KEY.deref()
-        {
-            return Ok(());
-        }
-        Err(Error::other("root certificate verification error"))
+impl RootCertVerifier for TrustAny {
+    fn verify(&self, _candidate: &Certificate) -> Result<(), Error> {
+        Ok(())
     }
 }
 
-/// Root certificate verifier that trusts the supplied list of certificates.
+/// A [`RootCertVerifier`] that trusts the supplied list of certificates.
 ///
-/// Only verifies the public keys.
+/// Only compares the public keys.
 pub struct TrustCerts(Vec<Certificate>);
 
 impl TrustCerts {
@@ -74,6 +47,6 @@ impl RootCertVerifier for TrustCerts {
                 return Ok(());
             }
         }
-        Err(Error::other("root certificate verification error"))
+        Err(Error::other("untrusted root certificate"))
     }
 }

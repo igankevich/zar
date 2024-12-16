@@ -9,7 +9,7 @@ use serde::Serialize;
 
 /// File mode.
 ///
-/// In XAR file mode includes only the first 12 bits of the usual file mode.
+/// Does not include file type.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[serde(into = "String", try_from = "String")]
 pub struct FileMode(u32);

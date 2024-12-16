@@ -1,3 +1,5 @@
+//! Table of contents.
+
 use std::collections::VecDeque;
 use std::fs::read_link;
 use std::fs::symlink_metadata;
@@ -102,46 +104,107 @@ pub struct TocChecksum {
     pub size: u64,
 }
 
-/// File metadata and file path stored in XAR file.
+/// File entry.
+///
+/// Includes metadata, file path, file location within the archive and checksums.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 #[serde(rename = "file")]
 pub struct File<X = ()> {
+    /// Unique id.
     #[serde(rename = "@id")]
     pub id: u64,
+
+    /// File name.
+    ///
+    /// This field only stores the last path component.
+    /// Child paths are stored in [`children`](File::children).
     pub name: PathBuf,
+
+    /// File type.
     #[serde(rename = "type", default)]
     pub kind: FileType,
+
+    /// Inode.
+    ///
+    /// Uniquely identifies the file together with [`deiviceno`](File::deviceno).
     #[serde(default)]
     pub inode: u64,
+
+    /// Containing device id.
     #[serde(default)]
     pub deviceno: u64,
+
+    /// File mode.
+    ///
+    /// Does not include file type.
     #[serde(default)]
     pub mode: FileMode,
+
+    /// Owner user id.
     #[serde(default)]
     pub uid: u32,
+
+    /// Owner group id.
     #[serde(default)]
     pub gid: u32,
+
+    /// Owner user name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+
+    /// Owner group name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+
+    /// Last accessed time.
     #[serde(default)]
     pub atime: Timestamp,
+
+    /// Last modification time.
     #[serde(default)]
     pub mtime: Timestamp,
+
+    /// Creation time.
     #[serde(default)]
     pub ctime: Timestamp,
+
+    /// Child path components.
+    ///
+    /// Contains the files if the current file type is a directory, empty otherwise.
     #[serde(default)]
     #[serde(rename = "file", skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<File<X>>,
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    data: Option<Data>,
+    data: Option<FileData>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     link: Option<Link>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     device: Option<Device>,
+
+    /// Extra data.
+    ///
+    /// Can be anything that implements [`Serialize`] and [`Deserialize`] traits.
+    ///
+    /// Please refer to [`quick_xml`] crate documentation to learn how to serialize XML attributes
+    /// and values.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra: Option<X>,
 }
 
 impl<X> File<X> {
+    /// Create new file entry.
+    ///
+    /// - `prefix` is stripped from the link targets,
+    /// - `path` is the file path in the file system,
+    /// - `name` is the file name in the archive,
+    /// - `compression` is the desired compression codec,
+    /// - `checksum_algo` is the desired checksum algorithm,
+    /// - `offset` is the offset from the beginning of the heap (i.e. from the end of the header)
+    ///   at which the compressed file contents will be stored,
+    /// - `extra` is any data that you want to store along the file entry in the table of contents
+    ///   (this data will be encoded as XML).
     #[allow(clippy::too_many_arguments)]
     pub fn new<P1: AsRef<Path>, P2: AsRef<Path>>(
         id: u64,
@@ -190,7 +253,7 @@ impl<X> File<X> {
             encoder.write_all(&contents)?;
             let archived = encoder.finish()?;
             let archived_checksum = checksum_algo.hash(&archived);
-            let data = Data {
+            let data = FileData {
                 archived_checksum: archived_checksum.into(),
                 extracted_checksum: extracted_checksum.into(),
                 encoding: compression.into(),
@@ -211,6 +274,8 @@ impl<X> File<X> {
             mode: metadata.mode().into(),
             uid: metadata.uid(),
             gid: metadata.gid(),
+            user: None,
+            group: None,
             atime: (metadata.atime() as u64).try_into().unwrap_or_default(),
             mtime: (metadata.mtime() as u64).try_into().unwrap_or_default(),
             ctime: (metadata.ctime() as u64).try_into().unwrap_or_default(),
@@ -248,55 +313,86 @@ impl<X> File<X> {
         files
     }
 
-    pub fn data(&self) -> Option<&Data> {
+    /// Get additional file entry data.
+    pub fn data(&self) -> Option<&FileData> {
         self.data.as_ref()
     }
 
+    /// Get link-related data.
+    ///
+    /// Should be present for symbolic links.
     pub fn link(&self) -> Option<&Link> {
         self.link.as_ref()
     }
 
+    /// Get device-related data.
+    ///
+    /// Should be present for character devices and block devices.
     pub fn device(&self) -> Option<&Device> {
         self.device.as_ref()
     }
 }
 
+/// Symbolic link information.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 #[serde(rename = "link", rename_all = "kebab-case")]
 pub struct Link {
+    /// Equals "file" for valid symbolic links, "broken" otherwise.
     #[serde(rename = "@type")]
     pub kind: String,
+
+    /// Target path.
     #[serde(rename = "$value")]
     pub target: PathBuf,
 }
 
+/// Character device or block device information.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 #[serde(rename = "device", rename_all = "kebab-case")]
 pub struct Device {
+    /// Major device id.
     #[serde(rename = "major")]
     pub major: u32,
+
+    /// Minor device id.
     #[serde(rename = "minor")]
     pub minor: u32,
 }
 
+/// Additional file entry data.
+///
+/// This data is needed to correctly read the file from the archive.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 #[serde(rename = "data", rename_all = "kebab-case")]
-pub struct Data {
+pub struct FileData {
+    /// The hash of the compressed file contents.
     pub archived_checksum: FileChecksum,
+
+    /// The hash of the uncompressed file contents.
     pub extracted_checksum: FileChecksum,
+
+    /// Compression codec.
     pub encoding: Encoding,
+
+    /// File offset from the start of the heap (i.e. from the end of the header).
     pub offset: u64,
+
+    /// Uncompressed file size in bytes.
     pub size: u64,
+
+    /// Compressed file size in bytes.
     pub length: u64,
 }
 
+/// Compression codec.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 #[serde(rename = "encoding")]
 pub struct Encoding {
+    /// Compression codec MIME type.
     #[serde(rename = "@style")]
     pub style: String,
 }
@@ -309,11 +405,15 @@ impl From<Compression> for Encoding {
     }
 }
 
+/// File hash.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct FileChecksum {
+    /// Hash algorithm.
     #[serde(rename = "@style")]
     pub algo: ChecksumAlgo,
+
+    /// Hash digest.
     #[serde(rename = "$value")]
     pub value: Checksum,
 }
@@ -375,6 +475,7 @@ pub struct X509Certificate {
     pub data: String,
 }
 
+/// UNIX timestamp.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(try_from = "String", into = "String")]
 pub struct Timestamp(pub SystemTime);

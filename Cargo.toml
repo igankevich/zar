@@ -44,6 +44,9 @@ similar-asserts = "1.6.0"
 tempfile = "3.14.0"
 x509-cert = { version = "0.2.5", features = ["builder"] }
 
+[build-dependencies]
+x509-cert = { version = "0.2.5", features = ["builder"] }
+
 [profile.dev.package.rsa]
 opt-level = 3
 
@@ -60,4 +63,8 @@ expect_used = "deny"
 panic = "deny"
 
 [lints.rust]
-#missing_docs = "warn"
+missing_docs = "warn"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

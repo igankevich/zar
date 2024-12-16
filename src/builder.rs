@@ -18,6 +18,7 @@ use x509_cert::Certificate;
 use crate::xml;
 use crate::ChecksumAlgo;
 use crate::Compression;
+use crate::File;
 use crate::FileType;
 use crate::HardLink;
 use crate::Signer;
@@ -56,7 +57,7 @@ impl BuilderOptions {
         writer: W,
         signer: Option<S>,
     ) -> ExtendedBuilder<W, S, X> {
-        ExtendedBuilder::new(writer, signer, self)
+        ExtendedBuilder::with_options(writer, signer, self)
     }
 }
 
@@ -66,16 +67,19 @@ impl Default for BuilderOptions {
     }
 }
 
-/// An archive builder without extra data.
+/// Signed XAR archive builder without extra data.
 pub type Builder<W, S> = ExtendedBuilder<W, S, ()>;
 
-/// An archive builder with extra data.
-pub struct ExtendedBuilder<W: Write, S: Signer, X = ()> {
+/// Unsigned XAR archive builder without extra data.
+pub type UnsignedBuilder<W> = ExtendedBuilder<W, NoSigner, ()>;
+
+/// XAR archive builder with extra data.
+pub struct ExtendedBuilder<W: Write, S: Signer = NoSigner, X = ()> {
     writer: W,
     signer: Option<S>,
     file_checksum_algo: ChecksumAlgo,
     toc_checksum_algo: ChecksumAlgo,
-    files: Vec<xml::File<X>>,
+    files: Vec<File<X>>,
     contents: Vec<Vec<u8>>,
     // (dev, inode) -> file index
     inodes: HashMap<(u64, u64), usize>,
@@ -83,8 +87,8 @@ pub struct ExtendedBuilder<W: Write, S: Signer, X = ()> {
 }
 
 impl<W: Write, S: Signer, X> ExtendedBuilder<W, S, X> {
-    /// Create new archive builder.
-    pub fn new(writer: W, signer: Option<S>, options: BuilderOptions) -> Self {
+    /// Create new archive builder with non-default options.
+    pub fn with_options(writer: W, signer: Option<S>, options: BuilderOptions) -> Self {
         let toc_checksum_len = options.toc_checksum_algo.hash_len();
         let offset = if let Some(ref signer) = signer {
             toc_checksum_len + signer.signature_len()
@@ -103,8 +107,18 @@ impl<W: Write, S: Signer, X> ExtendedBuilder<W, S, X> {
         }
     }
 
+    /// Create new archive builder with default options.
+    pub fn new(writer: W, signer: Option<S>) -> Self {
+        Self::with_options(writer, signer, Default::default())
+    }
+
+    /// Create new unsigned archive builder with default options.
+    pub fn new_unsigned(writer: W) -> Self {
+        Self::with_options(writer, None, Default::default())
+    }
+
     /// Get the files added so far.
-    pub fn files(&self) -> &[xml::File<X>] {
+    pub fn files(&self) -> &[File<X>] {
         &self.files[..]
     }
 
@@ -116,7 +130,7 @@ impl<W: Write, S: Signer, X> ExtendedBuilder<W, S, X> {
         mut extra: F,
     ) -> Result<(), Error>
     where
-        F: FnMut(&xml::File<X>, &Path, &Path) -> Result<Option<X>, Error>,
+        F: FnMut(&File<X>, &Path, &Path) -> Result<Option<X>, Error>,
         P: AsRef<Path>,
     {
         let path = path.as_ref();
@@ -133,7 +147,7 @@ impl<W: Write, S: Signer, X> ExtendedBuilder<W, S, X> {
             if archive_path == Path::new("") {
                 continue;
             }
-            let (file, archived_contents) = xml::File::<X>::new(
+            let (file, archived_contents) = File::<X>::new(
                 next_id,
                 path,
                 entry.path(),
@@ -168,7 +182,7 @@ impl<W: Write, S: Signer, X> ExtendedBuilder<W, S, X> {
     /// Append raw entry to the archive.
     pub fn append_raw(
         &mut self,
-        mut file: xml::File<X>,
+        mut file: File<X>,
         archived_contents: Vec<u8>,
     ) -> Result<(), Error> {
         self.handle_hard_links(&mut file);
@@ -188,7 +202,7 @@ impl<W: Write, S: Signer, X> ExtendedBuilder<W, S, X> {
         &self.writer
     }
 
-    fn handle_hard_links(&mut self, file: &mut xml::File<X>) {
+    fn handle_hard_links(&mut self, file: &mut File<X>) {
         match self.inodes.entry((file.deviceno, file.inode)) {
             Vacant(v) => {
                 let i = self.files.len();
@@ -260,7 +274,7 @@ impl<W: Write, S: Signer, X: Serialize + for<'a> Deserialize<'a> + Default>
     }
 }
 
-/// A signer implementation that produces unsigned archives.
+/// Archive [`Signer`](crate::Signer) that produces unsigned archives.
 pub struct NoSigner;
 
 impl Signer for NoSigner {
@@ -281,8 +295,13 @@ impl Signer for NoSigner {
     }
 }
 
-/// Use this function as `extra` argument to `Builder::append_*` calls to not append any extra data
-/// to the archive.
-pub fn no_extra_contents(_: &xml::File<()>, _: &Path, _: &Path) -> Result<Option<()>, Error> {
+/// Use this function as `extra` argument to [`Builder::append_dir_all`] and [`Builder::append_raw`]
+/// calls to not append any extra data to the archive.
+#[allow(unused)]
+pub fn no_extra_contents(
+    file: &File<()>,
+    archive_path: &Path,
+    file_system_path: &Path,
+) -> Result<Option<()>, Error> {
     Ok(None)
 }
