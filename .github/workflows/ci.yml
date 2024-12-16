@@ -29,9 +29,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4.1.4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
-      - run:
-          - brew install openssl
-          - cargo test --quiet --no-fail-fast --workspace --all-targets -- --nocapture
+      - run: |
+          brew install openssl;
+          cargo test --quiet --no-fail-fast --workspace --all-targets -- --nocapture
   publish:
     needs: [ubuntu, macos]
     runs-on: ubuntu-latest
