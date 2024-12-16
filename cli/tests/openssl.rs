@@ -11,7 +11,7 @@ use test_bin::get_test_bin;
 #[test]
 #[cfg_attr(
     target_os = "macos",
-    ignored = "`openssl` on MacOS doesn't support `-traditional`"
+    ignore = "`openssl` on MacOS doesn't support `-traditional`"
 )]
 fn sign_verify() {
     let workdir = TempDir::new().unwrap();
