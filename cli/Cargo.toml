@@ -25,10 +25,12 @@ zar = { path = ".." }
 [target.'cfg(target_os = "linux")'.dependencies]
 caps = "0.5.5"
 
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+libc = "0.2.168"
+
 [dev-dependencies]
 arbitrary = { version = "1.4.1", features = ["derive"] }
 arbtest = "0.3.1"
-libc = "0.2.168"
 random-dir = "0.2.4"
 similar-asserts = "1.6.0"
 tempfile = "3.14.0"

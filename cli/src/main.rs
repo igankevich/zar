@@ -305,7 +305,8 @@ fn can_chown() -> bool {
 
 #[cfg(not(target_os = "linux"))]
 fn can_chown() -> bool {
-    libc::getuid() == 0
+    let uid = unsafe { libc::getuid() };
+    uid == 0
 }
 
 fn read_cert_chain(path: &Path) -> Result<Vec<Certificate>, Error> {
