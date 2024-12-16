@@ -5,7 +5,6 @@ use std::io::Error;
 use std::io::ErrorKind;
 use std::io::Write;
 use std::path::Path;
-use std::path::PathBuf;
 use std::time::SystemTime;
 
 use base64ct::Base64;
@@ -101,24 +100,6 @@ impl<W: Write, S: Signer, X> ExtendedBuilder<W, S, X> {
         &self.files[..]
     }
 
-    pub fn append_path_all<F, P>(
-        &mut self,
-        path: P,
-        compression: Compression,
-        extra: F,
-    ) -> Result<(), Error>
-    where
-        F: FnMut(&xml::File<X>, &Path, &Path) -> Result<Option<X>, Error>,
-        P: AsRef<Path>,
-    {
-        let path = path.as_ref();
-        if path.is_dir() {
-            self.append_dir_all(path, compression, extra)
-        } else {
-            self.append_file(path, path.to_path_buf(), path, compression, extra)
-        }
-    }
-
     pub fn append_dir_all<F, P>(
         &mut self,
         path: P,
@@ -173,34 +154,6 @@ impl<W: Write, S: Signer, X> ExtendedBuilder<W, S, X> {
             self.append_raw(file, archived_contents)?;
         }
         Ok(())
-    }
-
-    // TODO do we need that? no nesting here
-    pub fn append_file<F, P>(
-        &mut self,
-        prefix: &Path,
-        archive_path: PathBuf,
-        path: P,
-        compression: Compression,
-        mut extra: F,
-    ) -> Result<(), Error>
-    where
-        F: FnMut(&xml::File<X>, &Path, &Path) -> Result<Option<X>, Error>,
-        P: AsRef<Path>,
-    {
-        let path = path.as_ref();
-        let (mut file, archived_contents) = xml::File::new(
-            self.files.len() as u64 + 1,
-            prefix,
-            path,
-            archive_path.clone(),
-            compression,
-            self.file_checksum_algo,
-            self.offset,
-            None,
-        )?;
-        file.extra = extra(&file, &archive_path, path)?;
-        self.append_raw(file, archived_contents)
     }
 
     pub fn append_raw(

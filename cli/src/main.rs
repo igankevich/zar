@@ -3,6 +3,7 @@ use std::io::Error;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::str::from_utf8;
 use std::str::FromStr;
 
 use clap::Parser;
@@ -62,13 +63,14 @@ struct Args {
     #[arg(long = "file-cksum", default_value = "sha1", value_name = "ALGO")]
     file_checksum: ChecksumAlgo,
 
-    /// Path to a file with DER-encoded RSA private key.
+    /// Path to a file with PKCS1 DER/PEM-encoded RSA private key.
     #[arg(long = "sign", value_name = "FILE")]
     signing_key_file: Option<PathBuf>,
 
-    /// DER-encoded X509 certificate chain to include in the archive.
+    /// PKCS1 PEM/DER-encoded X509 certificate chain to include in the archive.
     ///
     /// The first certificate must correspond to the signing key.
+    /// The argument can be repeated to include multiple invidvidual certificates.
     #[arg(long = "cert", value_name = "CERT")]
     certs: Vec<PathBuf>,
 
@@ -161,13 +163,18 @@ fn create(args: Args) -> Result<ExitCode, Error> {
         .file_checksum_algo(args.file_checksum.into());
     let mut builder = match args.signing_key_file {
         Some(ref signing_key_file) => {
-            let private_key = zar::rsa::RsaPrivateKey::read_pkcs1_der_file(signing_key_file)
-                .map_err(Error::other)?;
+            let signing_key_bytes = std::fs::read(signing_key_file)?;
+            let private_key = if signing_key_bytes.get(0..4) == Some(b"----") {
+                let s =
+                    from_utf8(&signing_key_bytes).map_err(|_| Error::other("non-utf8 pem file"))?;
+                zar::rsa::RsaPrivateKey::from_pkcs1_pem(s)
+            } else {
+                zar::rsa::RsaPrivateKey::from_pkcs1_der(&signing_key_bytes)
+            }
+            .map_err(Error::other)?;
             let mut certs = Vec::new();
             for cert_path in args.certs.iter() {
-                let der = std::fs::read(cert_path)?;
-                let cert = Certificate::from_der(&der).map_err(Error::other)?;
-                certs.push(cert);
+                certs.extend(read_cert_chain(cert_path)?);
             }
             let signer = zar::RsaSigner::new(toc_checksum_algo, private_key, certs)?;
             options.create(file, Some(signer))
@@ -194,9 +201,7 @@ fn extract(args: Args) -> Result<ExitCode, Error> {
     let (verifier, verify) = {
         let mut certs = Vec::new();
         for cert_path in args.trusted_certs.iter() {
-            let der = std::fs::read(cert_path)?;
-            let cert = Certificate::from_der(&der).map_err(Error::other)?;
-            certs.push(cert);
+            certs.extend(read_cert_chain(cert_path)?);
         }
         let verify = !certs.is_empty();
         (zar::TrustCerts::new(certs), verify)
@@ -301,4 +306,13 @@ fn can_chown() -> bool {
 #[cfg(not(target_os = "linux"))]
 fn can_chown() -> bool {
     libc::getuid() == 0
+}
+
+fn read_cert_chain(path: &Path) -> Result<Vec<Certificate>, Error> {
+    let bytes = std::fs::read(path)?;
+    if bytes.get(0..4) == Some(b"----") {
+        Ok(Certificate::load_pem_chain(&bytes).map_err(Error::other)?)
+    } else {
+        Ok(vec![Certificate::from_der(&bytes).map_err(Error::other)?])
+    }
 }
