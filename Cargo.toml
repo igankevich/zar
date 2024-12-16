@@ -47,6 +47,9 @@ x509-cert = { version = "0.2.5", features = ["builder"] }
 [build-dependencies]
 x509-cert = { version = "0.2.5", features = ["builder"] }
 
+[workspace.dependencies]
+zar = { path = ".", version = "*" }
+
 [profile.dev.package.rsa]
 opt-level = 3
 

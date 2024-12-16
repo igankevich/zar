@@ -20,7 +20,7 @@ path = "src/main.rs"
 clap = { version = "4.5.23", features = ["derive"] }
 libc = "0.2.168"
 x509-cert = "0.2.5"
-zar = { path = ".." }
+zar.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 caps = "0.5.5"

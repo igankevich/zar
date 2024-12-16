@@ -79,7 +79,7 @@ where
                 if file1.metadata.mtime != file2.metadata.mtime {
                     eprintln!(
                         "WARNING: wrong mtime: {} != {}",
-                        file1.metadata.mtime, file1.metadata.mtime
+                        file1.metadata.mtime, file2.metadata.mtime
                     );
                     file1.metadata.mtime = 0;
                     file2.metadata.mtime = 0;
