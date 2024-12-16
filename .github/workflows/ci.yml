@@ -80,5 +80,5 @@ jobs:
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./zar-${{ github.ref_name }}.tar.gz
-          asset_name: stuckliste-${{ github.ref_name }}.tar.gz
+          asset_name: zar-${{ github.ref_name }}.tar.gz
           asset_content_type: application/gzip

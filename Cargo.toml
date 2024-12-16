@@ -57,7 +57,7 @@ opt-level = 3
 members = [".", "cli"]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 license = "MIT"
 
 [lints.clippy]
@@ -70,4 +70,3 @@ missing_docs = "warn"
 
 [package.metadata.docs.rs]
 all-features = true
-rustdoc-args = ["--cfg", "docsrs"]

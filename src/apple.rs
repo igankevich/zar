@@ -16,7 +16,6 @@ static APPLE_ROOT_PUBLIC_KEY: LazyLock<BitStringRef<'static>> = LazyLock::new(||
 /// A [`RootCertVerifier`] that trusts only Apple root certificate.
 ///
 /// Only compares the public key.
-#[cfg_attr(docsrs, doc(cfg(feature = "apple-root-cert")))]
 pub struct AppleRootCertVerifier;
 
 impl RootCertVerifier for AppleRootCertVerifier {
