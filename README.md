@@ -10,7 +10,7 @@ Supports signing and verifying archives.
 
 ## Installation
 
-The easiest way to use `stuckliste` is via command line interface.
+The easiest way to use `zar` is via command line interface.
 
 ```bash
 cargo install zar-cli
