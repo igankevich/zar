@@ -7,8 +7,8 @@ homepage = "https://github.com/igankevich/zar"
 repository = "https://github.com/igankevich/zar"
 documentation = "https://docs.rs/zar-cli"
 readme = "../README.md"
-description = "A command-line utility for reading and writing MacOS XAR files."
-keywords = ["bom", "bill-of-materials", "mkbom", "lsbom"]
+description = "A command-line utility for reading and writing MacOS signed XAR archives."
+keywords = ["xar", "pkg", "apple", "sign"]
 categories = ["encoding", "filesystem", "command-line-utilities"]
 include = ["**/*.rs", "Cargo.toml", "../README.md", "LICENSE"]
 
