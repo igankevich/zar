@@ -7,8 +7,7 @@ use x509_cert::der::Decode;
 use x509_cert::Certificate;
 
 fn main() {
-    let root_dir = std::env::var_os("CARGO_MANIFEST_DIR").unwrap();
-    let der = std::fs::read(Path::new(&root_dir).join("certs/apple.der")).unwrap();
+    let der = std::fs::read("certs/apple.der").unwrap();
     let cert = Certificate::from_der(&der[..]).unwrap();
     let public_key_bytes = cert
         .tbs_certificate
