@@ -17,13 +17,14 @@ use x509_cert::Certificate;
 use crate::ChecksumAlgo;
 use crate::Signer;
 
-#[derive(Debug)]
+/// The implementation of [`Signer`](crate::Signer) that uses RSA key to sign the archive.
 pub struct RsaSigner {
     signing_key: SigningKeyInner,
     certs: Vec<Certificate>,
 }
 
 impl RsaSigner {
+    /// Create new signer from provided hashing algorithm, private key and certificate chain.
     pub fn new(
         algo: ChecksumAlgo,
         private_key: RsaPrivateKey,
@@ -38,9 +39,17 @@ impl RsaSigner {
         Ok(Self { signing_key, certs })
     }
 
+    /// Create new signer with provided RSA-SHA1 signing key and certificate chain.
     pub fn with_sha1(signing_key: SigningKey<Sha1>, certs: Vec<Certificate>) -> Self {
         use SigningKeyInner::*;
         let signing_key = Sha1(signing_key);
+        Self { signing_key, certs }
+    }
+
+    /// Create new signer with provided RSA-SHA256 signing key and certificate chain.
+    pub fn with_sha256(signing_key: SigningKey<Sha256>, certs: Vec<Certificate>) -> Self {
+        use SigningKeyInner::*;
+        let signing_key = Sha256(signing_key);
         Self { signing_key, certs }
     }
 }
@@ -69,12 +78,12 @@ impl Signer for RsaSigner {
     }
 }
 
-pub struct RsaVerifier {
+pub(crate) struct RsaVerifier {
     inner: RsaVerifierInner,
 }
 
 impl RsaVerifier {
-    pub fn new(algo: ChecksumAlgo, public_key: RsaPublicKey) -> Result<Self, Error> {
+    pub(crate) fn new(algo: ChecksumAlgo, public_key: RsaPublicKey) -> Result<Self, Error> {
         use RsaVerifierInner::*;
         let inner = match algo {
             ChecksumAlgo::Sha1 => Sha1(VerifyingKey::new(public_key)),
@@ -84,7 +93,7 @@ impl RsaVerifier {
         Ok(Self { inner })
     }
 
-    pub fn verify(&self, data: &[u8], signature: &RsaSignature) -> Result<(), Error> {
+    pub(crate) fn verify(&self, data: &[u8], signature: &RsaSignature) -> Result<(), Error> {
         use RsaVerifierInner::*;
         match self.inner {
             Sha1(ref v) => RsaVerifierTrait::verify(v, data, signature),
@@ -93,7 +102,7 @@ impl RsaVerifier {
         .map_err(|_| Error::other("signature verification error"))
     }
 
-    pub fn into_inner(self) -> RsaPublicKey {
+    pub(crate) fn into_inner(self) -> RsaPublicKey {
         use RsaVerifierInner::*;
         match self.inner {
             Sha1(v) => v.into(),

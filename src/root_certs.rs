@@ -16,10 +16,19 @@ pub(crate) static APPLE_ROOT_PUBLIC_KEY: LazyLock<BitString> = LazyLock::new(|| 
         .subject_public_key
 });
 
+/// Root certificate verifier.
+///
+/// This trait is used to verify the self-signed root certificate stored in the archive (trusted or
+/// not trusted).
 pub trait RootCertVerifier {
+    /// Verify `candidate` as trusted or not trusted.
     fn verify(&self, candidate: &Certificate) -> Result<(), Error>;
 }
 
+/// Default root certificate verifier implementation.
+///
+/// Trusts only Apple root certificate when feature `apple-root-cert` is enabled,
+/// otherwise trusts none.
 #[derive(Default)]
 pub struct DefaultRootCertVerifier;
 
@@ -38,9 +47,13 @@ impl RootCertVerifier for DefaultRootCertVerifier {
     }
 }
 
+/// Root certificate verifier that trusts the supplied list of certificates.
+///
+/// Only verifies the public keys.
 pub struct TrustCerts(Vec<Certificate>);
 
 impl TrustCerts {
+    /// Create a new verifier that trusts the supplied certificates.
     pub fn new(certs: Vec<Certificate>) -> Self {
         Self(certs)
     }

@@ -17,10 +17,15 @@ use sha2::Sha512;
 #[cfg_attr(test, derive(arbitrary::Arbitrary))]
 #[serde(into = "String", try_from = "String")]
 pub enum Checksum {
+    /// No hashing.
     None,
+    /// MD5 hash.
     Md5([u8; MD5_LEN]),
+    /// SHA1 hash.
     Sha1([u8; SHA1_LEN]),
+    /// SHA256 hash.
     Sha256([u8; SHA256_LEN]),
+    /// SHA512 hash.
     Sha512([u8; SHA512_LEN]),
 }
 
@@ -130,11 +135,16 @@ impl AsRef<[u8]> for Checksum {
 #[serde(rename_all = "lowercase")]
 #[repr(u32)]
 pub enum ChecksumAlgo {
+    /// No hashing.
     None = 0,
+    /// SHA1 hash.
     Sha1 = 1,
+    /// MD5 hash.
     Md5 = 2,
+    /// SHA256 hash.
     #[default]
     Sha256 = 3,
+    /// SHA512 hash.
     Sha512 = 4,
 }
 

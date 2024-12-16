@@ -9,16 +9,24 @@ use deko::Format;
 use flate2::read::ZlibDecoder;
 use xz::read::XzDecoder;
 
+/// Compression codec that is used to compress files and table of contents.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
 pub enum Compression {
+    /// No compression.
+    ///
+    /// Write the contents verbatim.
     None,
+    /// GZIP compression.
     #[default]
     Gzip,
+    /// BZIP2 compression.
     Bzip2,
+    /// XZ compression.
     Xz,
 }
 
 impl Compression {
+    /// Get codec name as written in table of contents.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::None => OCTET_STREAM_MIME_TYPE,
@@ -28,6 +36,7 @@ impl Compression {
         }
     }
 
+    /// Create new encoder for this compression codec.
     pub fn encoder<W: Write>(self, writer: W) -> Result<AnyEncoder<W>, Error> {
         match self {
             Self::None => AnyEncoder::new(writer, Format::Verbatim, DekoCompression::Best),
@@ -37,6 +46,7 @@ impl Compression {
         }
     }
 
+    /// Create new decoder for this compression codec.
     pub fn decoder<R: Read>(self, reader: R) -> XarDecoder<R> {
         match self {
             Self::None => XarDecoder::OctetStream(reader),
@@ -58,10 +68,15 @@ impl From<&str> for Compression {
     }
 }
 
+/// Decoder for [`Compression`] codec.
 pub enum XarDecoder<R: Read> {
+    /// No compression.
     OctetStream(R),
+    /// GZIP compression.
     Gzip(ZlibDecoder<R>),
+    /// BZIP2 compression.
     Bzip2(BzDecoder<R>),
+    /// XZ compression.
     Xz(XzDecoder<R>),
 }
 
@@ -74,6 +89,8 @@ impl<R: Read> Read for XarDecoder<R> {
             Self::Xz(r) => r.read(buf),
         }
     }
+
+    // TODO other methods
 }
 
 const OCTET_STREAM_MIME_TYPE: &str = "application/octet-stream";

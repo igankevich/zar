@@ -102,6 +102,7 @@ pub struct TocChecksum {
     pub size: u64,
 }
 
+/// File metadata and file path stored in XAR file.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 #[serde(rename = "file")]

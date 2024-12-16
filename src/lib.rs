@@ -12,7 +12,7 @@ mod root_certs;
 mod rsa_signer;
 mod signer;
 mod walk;
-pub mod xml;
+mod xml;
 
 // Re-exports.
 pub use rsa;
@@ -30,3 +30,5 @@ pub use self::root_certs::*;
 pub use self::rsa_signer::*;
 pub use self::signer::*;
 pub(crate) use self::walk::*;
+pub use self::xml::File;
+pub use self::xml::Timestamp;

@@ -23,12 +23,14 @@ use crate::HardLink;
 use crate::Signer;
 use crate::Walk;
 
+/// Builder options.
 pub struct BuilderOptions {
     file_checksum_algo: ChecksumAlgo,
     toc_checksum_algo: ChecksumAlgo,
 }
 
 impl BuilderOptions {
+    /// Create new default options.
     pub fn new() -> Self {
         Self {
             file_checksum_algo: Default::default(),
@@ -36,37 +38,25 @@ impl BuilderOptions {
         }
     }
 
+    /// File hashing algorithm.
     pub fn file_checksum_algo(mut self, algo: ChecksumAlgo) -> Self {
         self.file_checksum_algo = algo;
         self
     }
 
+    /// Table of contents hashing algorithm.
     pub fn toc_checksum_algo(mut self, algo: ChecksumAlgo) -> Self {
         self.toc_checksum_algo = algo;
         self
     }
 
+    /// Create new builder using the configured options.
     pub fn create<W: Write, S: Signer, X>(
         self,
         writer: W,
         signer: Option<S>,
     ) -> ExtendedBuilder<W, S, X> {
-        let toc_checksum_len = self.toc_checksum_algo.hash_len();
-        let offset = if let Some(ref signer) = signer {
-            toc_checksum_len + signer.signature_len()
-        } else {
-            toc_checksum_len
-        };
-        ExtendedBuilder {
-            writer,
-            signer,
-            offset: offset as u64,
-            file_checksum_algo: self.file_checksum_algo,
-            toc_checksum_algo: self.toc_checksum_algo,
-            files: Default::default(),
-            contents: Default::default(),
-            inodes: Default::default(),
-        }
+        ExtendedBuilder::new(writer, signer, self)
     }
 }
 
@@ -76,9 +66,10 @@ impl Default for BuilderOptions {
     }
 }
 
-/// A builder without extra data.
+/// An archive builder without extra data.
 pub type Builder<W, S> = ExtendedBuilder<W, S, ()>;
 
+/// An archive builder with extra data.
 pub struct ExtendedBuilder<W: Write, S: Signer, X = ()> {
     writer: W,
     signer: Option<S>,
@@ -92,14 +83,32 @@ pub struct ExtendedBuilder<W: Write, S: Signer, X = ()> {
 }
 
 impl<W: Write, S: Signer, X> ExtendedBuilder<W, S, X> {
-    pub fn new(writer: W, signer: Option<S>) -> Self {
-        BuilderOptions::new().create(writer, signer)
+    /// Create new archive builder.
+    pub fn new(writer: W, signer: Option<S>, options: BuilderOptions) -> Self {
+        let toc_checksum_len = options.toc_checksum_algo.hash_len();
+        let offset = if let Some(ref signer) = signer {
+            toc_checksum_len + signer.signature_len()
+        } else {
+            toc_checksum_len
+        };
+        ExtendedBuilder {
+            writer,
+            signer,
+            offset: offset as u64,
+            file_checksum_algo: options.file_checksum_algo,
+            toc_checksum_algo: options.toc_checksum_algo,
+            files: Default::default(),
+            contents: Default::default(),
+            inodes: Default::default(),
+        }
     }
 
+    /// Get the files added so far.
     pub fn files(&self) -> &[xml::File<X>] {
         &self.files[..]
     }
 
+    /// Append directory to the archive recursively.
     pub fn append_dir_all<F, P>(
         &mut self,
         path: P,
@@ -156,6 +165,7 @@ impl<W: Write, S: Signer, X> ExtendedBuilder<W, S, X> {
         Ok(())
     }
 
+    /// Append raw entry to the archive.
     pub fn append_raw(
         &mut self,
         mut file: xml::File<X>,
@@ -168,10 +178,12 @@ impl<W: Write, S: Signer, X> ExtendedBuilder<W, S, X> {
         Ok(())
     }
 
+    /// Get mutable reference to the underlying writer.
     pub fn get_mut(&mut self) -> &mut W {
         self.writer.by_ref()
     }
 
+    /// Get immutable reference to the underlying writer.
     pub fn get(&self) -> &W {
         &self.writer
     }
@@ -198,6 +210,7 @@ impl<W: Write, S: Signer, X> ExtendedBuilder<W, S, X> {
 impl<W: Write, S: Signer, X: Serialize + for<'a> Deserialize<'a> + Default>
     ExtendedBuilder<W, S, X>
 {
+    /// Write the archive to the underlying writer.
     pub fn finish(mut self) -> Result<W, Error> {
         let checksum_len = self.toc_checksum_algo.hash_len() as u64;
         // http://users.wfu.edu/cottrell/productsign/productsign_linux.html
@@ -247,7 +260,7 @@ impl<W: Write, S: Signer, X: Serialize + for<'a> Deserialize<'a> + Default>
     }
 }
 
-// A stub to produce unsigned archives.
+/// A signer implementation that produces unsigned archives.
 pub struct NoSigner;
 
 impl Signer for NoSigner {
@@ -268,6 +281,8 @@ impl Signer for NoSigner {
     }
 }
 
+/// Use this function as `extra` argument to `Builder::append_*` calls to not append any extra data
+/// to the archive.
 pub fn no_extra_contents(_: &xml::File<()>, _: &Path, _: &Path) -> Result<Option<()>, Error> {
     Ok(None)
 }

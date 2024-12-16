@@ -126,8 +126,10 @@ impl From<std::fs::FileType> for FileType {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
 #[cfg_attr(test, derive(arbitrary::Arbitrary))]
 pub enum HardLink {
+    /// Original file.
     #[default]
     Original,
+    /// Hard link to the file with specified id.
     Id(u64),
 }
 

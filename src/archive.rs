@@ -115,9 +115,10 @@ impl Default for ArchiveOptions {
     }
 }
 
-/// An archive without extra data.
+/// An archive without any extra data.
 pub type Archive<R> = ExtendedArchive<R, ()>;
 
+/// XAR archive with extra data.
 pub struct ExtendedArchive<R: Read + Seek, X = ()> {
     files: Vec<xml::File<X>>,
     reader: R,
@@ -128,10 +129,13 @@ pub struct ExtendedArchive<R: Read + Seek, X = ()> {
 }
 
 impl<R: Read + Seek, X: for<'a> Deserialize<'a> + Default> ExtendedArchive<R, X> {
+    /// Create new archive with the [default](crate::DefaultRootCertVerifier) root certificate
+    /// verifier.
     pub fn new(reader: R, options: ArchiveOptions) -> Result<Self, Error> {
         Self::with_root_cert_verifier(reader, &DefaultRootCertVerifier, options)
     }
 
+    /// Create new archive with the specified root certificate verifier.
     pub fn with_root_cert_verifier<V: RootCertVerifier>(
         mut reader: R,
         root_cert_verifier: &V,
@@ -246,18 +250,22 @@ impl<R: Read + Seek, X: for<'a> Deserialize<'a> + Default> ExtendedArchive<R, X>
 }
 
 impl<R: Read + Seek, X> ExtendedArchive<R, X> {
+    /// Get files.
     pub fn files(&self) -> &[xml::File<X>] {
         self.files.as_slice()
     }
 
+    /// Get the number of files.
     pub fn num_entries(&self) -> usize {
         self.files.len()
     }
 
+    /// Get file at index `i`.
     pub fn entry(&mut self, i: usize) -> Entry<R, X> {
         Entry { i, archive: self }
     }
 
+    /// Extract the contents of the archive to `dest_dir`.
     pub fn extract<P: AsRef<Path>>(mut self, dest_dir: P) -> Result<(), Error> {
         use std::collections::hash_map::Entry::*;
         let dest_dir = dest_dir.as_ref();
@@ -409,12 +417,18 @@ fn seek_to_file<R: Read + Seek>(
     Ok(())
 }
 
+/// File entry that is currently being read.
 pub struct Entry<'a, R: Read + Seek, X> {
     archive: &'a mut ExtendedArchive<R, X>,
     i: usize,
 }
 
 impl<'a, R: Read + Seek, X> Entry<'a, R, X> {
+    /// Get file reader.
+    ///
+    /// The reader is provided for every regular file.
+    /// If the file is empty, the stream will not contain any bytes.
+    /// For non-regular-file entries `Ok(None)` is returned.
     pub fn reader(&mut self) -> Result<Option<XarDecoder<Take<&mut R>>>, Error> {
         let file = &self.archive.files[self.i];
         match file.data() {
@@ -449,14 +463,14 @@ impl<'a, R: Read + Seek, X> Entry<'a, R, X> {
         }
     }
 
+    /// Get file.
     pub fn file(&self) -> &xml::File<X> {
         &self.archive.files[self.i]
     }
 }
 
-pub const RSA_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.1");
-pub const RSA_SHA1_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.5");
-pub const RSA_SHA256_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.11");
+const RSA_SHA1_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.5");
+const RSA_SHA256_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.11");
 
 #[cfg(test)]
 mod tests {
