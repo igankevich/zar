@@ -126,6 +126,7 @@ impl<W: Write, S: Signer, X> ExtendedBuilder<W, S, X> {
     pub fn append_dir_all<F, P>(
         &mut self,
         path: P,
+        // TODO default compression for each mime type
         compression: Compression,
         mut extra: F,
     ) -> Result<(), Error>
