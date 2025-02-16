@@ -429,7 +429,7 @@ pub struct Entry<'a, R: Read + Seek, X> {
     i: usize,
 }
 
-impl<'a, R: Read + Seek, X> Entry<'a, R, X> {
+impl<R: Read + Seek, X> Entry<'_, R, X> {
     /// Get file reader.
     ///
     /// The reader is provided for every regular file.
