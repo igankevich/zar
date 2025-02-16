@@ -17,8 +17,8 @@ name = "zar"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4.5.23", features = ["derive"] }
-libc = "0.2.168"
+clap = { version = "4.5.29", features = ["derive"] }
+libc = "0.2.169"
 x509-cert = "0.2.5"
 zar.workspace = true
 
@@ -26,12 +26,12 @@ zar.workspace = true
 caps = "0.5.5"
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
-libc = "0.2.168"
+libc = "0.2.169"
 
 [dev-dependencies]
 arbitrary = { version = "1.4.1", features = ["derive"] }
-arbtest = "0.3.1"
+arbtest = "0.3.2"
 random-dir = "0.2.4"
-similar-asserts = "1.6.0"
-tempfile = "3.14.0"
+similar-asserts = "1.6.1"
+tempfile = "3.16.0"
 test_bin = "0.4.0"

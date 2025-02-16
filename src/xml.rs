@@ -58,7 +58,7 @@ impl<X: Serialize + Default> Xar<X> {
         let mut toc_uncompressed = String::new();
         toc_uncompressed.push_str(XML_DECLARATION);
         to_writer(&mut toc_uncompressed, self).map_err(Error::other)?;
-        let toc_len_uncompressed = toc_uncompressed.as_bytes().len();
+        let toc_len_uncompressed = toc_uncompressed.len();
         let mut encoder = ZlibEncoder::new(Vec::new(), flate2::Compression::best());
         encoder.write_all(toc_uncompressed.as_bytes())?;
         let toc_compressed = encoder.finish()?;

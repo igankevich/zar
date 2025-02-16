@@ -17,7 +17,7 @@ pub trait Signer {
     fn certs(&self) -> &[Certificate];
 }
 
-impl<'a, S: Signer> Signer for &'a S {
+impl<S: Signer> Signer for &S {
     fn sign(&self, data: &[u8]) -> Result<Vec<u8>, Error> {
         (*self).sign(data)
     }
