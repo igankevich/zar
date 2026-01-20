@@ -22,7 +22,7 @@ base16ct = { version = "0.2.0", features = ["std"], default-features = false }
 base64ct = { version = "1.6.0", features = ["std"], default-features = false }
 bzip2 = "0.5.1"
 chrono = "0.4.39"
-deko = { version = "0.4.0", features = ["flate2", "bzip2", "xz"], default-features = false }
+deko = { version = "0.6.0", features = ["flate2", "bzip2", "xz"], default-features = false }
 digest = "0.10.7"
 flate2 = "1.0.35"
 libc = "0.2.169"
@@ -34,7 +34,7 @@ serde = { version = "1.0.217", features = ["derive"] }
 sha1 = "0.10.6"
 sha2 = "0.10.8"
 x509-cert = "0.2.5"
-xz = "0.1.0"
+xz = { package = "liblzma", version = "0.4.5" }
 
 [dev-dependencies]
 arbitrary = { version = "1.4.1", features = ["derive"] }
