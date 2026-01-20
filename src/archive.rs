@@ -267,7 +267,7 @@ impl<R: Read + Seek, X> ExtendedArchive<R, X> {
     }
 
     /// Get file at index `i`.
-    pub fn entry(&mut self, i: usize) -> Entry<R, X> {
+    pub fn entry(&mut self, i: usize) -> Entry<'_, R, X> {
         Entry { i, archive: self }
     }
 

@@ -18,30 +18,30 @@ default = ["apple-root-cert"]
 apple-root-cert = []
 
 [dependencies]
-base16ct = { version = "0.2.0", features = ["std"], default-features = false }
-base64ct = { version = "1.6.0", features = ["std"], default-features = false }
-bzip2 = "0.5.1"
-chrono = "0.4.39"
-deko = { version = "0.4.0", features = ["flate2", "bzip2", "xz"], default-features = false }
+base16ct = { version = "1.0.0", features = ["alloc"], default-features = false }
+base64ct = { version = "1.8.3", features = ["std"], default-features = false }
+bzip2 = "0.6.1"
+chrono = "0.4.43"
+deko = { version = "0.6.0", features = ["flate2", "bzip2", "xz"], default-features = false }
 digest = "0.10.7"
-flate2 = "1.0.35"
-libc = "0.2.169"
-md5 = "0.7.0"
+flate2 = "1.1.5"
+libc = "0.2.180"
+md5 = "0.8.0"
 normalize-path = "0.2.1"
-quick-xml = { version = "0.37.2", features = ["serialize"], default-features = false }
-rsa = { version = "0.9.7", features = ["sha2", "sha1"] }
-serde = { version = "1.0.217", features = ["derive"] }
+quick-xml = { version = "0.39.0", features = ["serialize"], default-features = false }
+rsa = { version = "0.9.10", features = ["sha2", "sha1"] }
+serde = { version = "1.0.228", features = ["derive"] }
 sha1 = "0.10.6"
-sha2 = "0.10.8"
+sha2 = "0.10.9"
 x509-cert = "0.2.5"
-xz = "0.1.0"
+xz = { package = "liblzma", version = "0.4.5" }
 
 [dev-dependencies]
-arbitrary = { version = "1.4.1", features = ["derive"] }
+arbitrary = { version = "1.4.2", features = ["derive"] }
 arbtest = "0.3.2"
 random-dir = "0.2.4"
-similar-asserts = "1.6.1"
-tempfile = "3.16.0"
+similar-asserts = "1.7.0"
+tempfile = "3.24.0"
 x509-cert = { version = "0.2.5", features = ["builder"] }
 
 [build-dependencies]
@@ -57,7 +57,7 @@ opt-level = 3
 members = [".", "cli"]
 
 [workspace.package]
-version = "0.1.4"
+version = "0.2.0"
 license = "MIT"
 
 [lints.clippy]

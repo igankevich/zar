@@ -6,7 +6,6 @@ use std::process::Command;
 use arbtest::arbtest;
 use random_dir::DirBuilder;
 use tempfile::TempDir;
-use test_bin::get_test_bin;
 
 #[test]
 #[cfg_attr(
@@ -57,7 +56,7 @@ fn sign_verify() {
             .create(u)?;
         remove_dir_all(&unpack_dir).ok();
         create_dir_all(&unpack_dir).unwrap();
-        assert!(get_test_bin("zar")
+        assert!(test_bin::get_test_bin!("zar")
             .arg("--sign")
             .arg(&private_key_pem)
             .arg("--cert")
@@ -68,7 +67,7 @@ fn sign_verify() {
             .status()
             .unwrap()
             .success());
-        assert!(get_test_bin("zar")
+        assert!(test_bin::get_test_bin!("zar")
             .arg("--trust")
             .arg(&cert_pem)
             .arg("-xf")

@@ -285,8 +285,8 @@ impl<X> File<X> {
             device: if matches!(kind, FileType::CharacterSpecial | FileType::BlockSpecial) {
                 let rdev = metadata.rdev() as _;
                 Some(Device {
-                    major: unsafe { libc::major(rdev) } as _,
-                    minor: unsafe { libc::minor(rdev) } as _,
+                    major: libc::major(rdev) as _,
+                    minor: libc::minor(rdev) as _,
                 })
             } else {
                 None
