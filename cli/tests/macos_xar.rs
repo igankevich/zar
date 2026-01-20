@@ -7,16 +7,15 @@ use arbtest::arbtest;
 use random_dir::list_dir_all;
 use random_dir::DirBuilder;
 use tempfile::TempDir;
-use test_bin::get_test_bin;
 
 #[test]
 fn we_archive_they_extract() {
-    archive_extract(|| get_test_bin("zar"), || Command::new("xar"));
+    archive_extract(|| test_bin::get_test_bin!("zar"), || Command::new("xar"));
 }
 
 #[test]
 fn they_archive_we_extract() {
-    archive_extract(|| Command::new("xar"), || get_test_bin("zar"));
+    archive_extract(|| Command::new("xar"), || test_bin::get_test_bin!("zar"));
 }
 
 fn archive_extract<F1, F2>(mut xar1: F1, mut xar2: F2)
