@@ -57,7 +57,7 @@ opt-level = 3
 members = [".", "cli"]
 
 [workspace.package]
-version = "0.1.4"
+version = "0.2.0"
 license = "MIT"
 
 [lints.clippy]
