@@ -283,10 +283,10 @@ impl<X> File<X> {
             data,
             link,
             device: if matches!(kind, FileType::CharacterSpecial | FileType::BlockSpecial) {
-                let rdev = metadata.rdev();
+                let rdev = metadata.rdev() as _;
                 Some(Device {
-                    major: libc::major(rdev),
-                    minor: libc::minor(rdev),
+                    major: libc::major(rdev) as _,
+                    minor: libc::minor(rdev) as _,
                 })
             } else {
                 None
