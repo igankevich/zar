@@ -1,25 +1,17 @@
 use std::collections::HashMap;
 use std::collections::VecDeque;
-use std::ffi::CStr;
 use std::fs::create_dir_all;
-use std::fs::set_permissions;
 use std::fs::File;
-use std::fs::Permissions;
 use std::io::Error;
 use std::io::ErrorKind;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Take;
-use std::os::unix::fs::lchown;
-use std::os::unix::fs::symlink;
-use std::os::unix::fs::PermissionsExt;
-use std::os::unix::net::UnixDatagram;
 use std::path::Path;
 
 use base64ct::Base64;
 use base64ct::Encoding;
-use libc::makedev;
 use rsa::pkcs1v15::Signature as RsaSignature;
 use rsa::RsaPublicKey;
 use serde::Deserialize;
@@ -29,11 +21,7 @@ use x509_cert::der::Decode;
 use x509_cert::der::Encode;
 use x509_cert::Certificate;
 
-use crate::lchown as c_lchown;
-use crate::mkfifo;
-use crate::mknod;
 use crate::path_to_c_string;
-use crate::set_file_modified_time;
 use crate::xml;
 use crate::Checksum;
 use crate::ChecksumAlgo;
@@ -283,24 +271,30 @@ impl<R: Read + Seek, X> ExtendedArchive<R, X> {
         let mut inodes = HashMap::new();
         let preserve_mtime = self.preserve_mtime;
         let self_preserve_owner = self.preserve_owner;
-        let c_preserve_mtime = |path: &CStr, file: &xml::File<X>| -> Result<(), Error> {
+        #[cfg(unix)]
+        let c_preserve_mtime = |path: &std::ffi::CStr, file: &xml::File<X>| -> Result<(), Error> {
             if preserve_mtime {
-                set_file_modified_time(path, file.mtime.0)?;
+                crate::set_file_modified_time(path, file.mtime.0)?;
             }
             Ok(())
         };
+        #[cfg(unix)]
         let preserve_owner = |path: &Path, file: &xml::File<X>| -> Result<(), Error> {
-            if self_preserve_owner {
-                lchown(path, Some(file.uid), Some(file.gid))?;
-            }
+            use std::os::unix::fs::lchown;
+            lchown(path, Some(file.uid), Some(file.gid))?;
             Ok(())
         };
-        let c_preserve_owner = |path: &CStr, file: &xml::File<X>| -> Result<(), Error> {
-            if self_preserve_owner {
-                c_lchown(path, file.uid, file.gid)?;
-            }
+        #[cfg(unix)]
+        let c_preserve_owner = |path: &std::ffi::CStr, file: &xml::File<X>| -> Result<(), Error> {
+            use crate::lchown as c_lchown;
+            c_lchown(path, file.uid, file.gid)?;
             Ok(())
         };
+        #[cfg(windows)]
+        let preserve_owner = |_path: &Path, _file: &xml::File<X>| -> Result<(), Error> { Ok(()) };
+        #[cfg(windows)]
+        let c_preserve_owner =
+            |_path: &std::ffi::CStr, _file: &xml::File<X>| -> Result<(), Error> { Ok(()) };
         for i in 0..self.num_entries() {
             let mut entry = self.entry(i);
             let dest_file = dest_dir.join(&entry.file().name);
@@ -329,16 +323,24 @@ impl<R: Read + Seek, X> ExtendedArchive<R, X> {
                         file.set_modified(entry.file().mtime.0)?;
                     }
                     drop(file);
-                    preserve_owner(&dest_file, entry.file())?;
-                    let perms = Permissions::from_mode(entry.file().mode.into());
-                    set_permissions(&dest_file, perms)?;
+                    if self_preserve_owner {
+                        preserve_owner(&dest_file, entry.file())?;
+                    }
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        let perms = std::fs::Permissions::from_mode(entry.file().mode.into());
+                        std::fs::set_permissions(&dest_file, perms)?;
+                    }
                 }
                 FileType::Directory => {
                     create_dir_all(&dest_file)?;
                     if preserve_mtime {
                         File::open(&dest_file)?.set_modified(entry.file().mtime.0)?;
                     }
-                    preserve_owner(&dest_file, entry.file())?;
+                    if self_preserve_owner {
+                        preserve_owner(&dest_file, entry.file())?;
+                    }
                     // apply proper permissions later when we have written all other files
                     dirs.push((dest_file, entry.file().mode));
                 }
@@ -352,7 +354,9 @@ impl<R: Read + Seek, X> ExtendedArchive<R, X> {
                         hard_links.push((id, dest_file));
                     }
                 },
+                #[cfg(unix)]
                 FileType::Symlink => {
+                    use std::os::unix::fs::symlink;
                     let target = entry
                         .file()
                         .link()
@@ -362,30 +366,66 @@ impl<R: Read + Seek, X> ExtendedArchive<R, X> {
                     symlink(target, &dest_file)?;
                     let path = path_to_c_string(dest_file)?;
                     c_preserve_mtime(&path, entry.file())?;
-                    c_preserve_owner(&path, entry.file())?;
+                    if self_preserve_owner {
+                        c_preserve_owner(&path, entry.file())?;
+                    }
                 }
+                #[cfg(windows)]
+                FileType::Symlink => {
+                    use std::os::windows::fs::symlink_dir;
+                    use std::os::windows::fs::symlink_file;
+                    let file = entry.file();
+                    let target = file.link().ok_or(ErrorKind::InvalidData)?.target.as_path();
+                    match file.kind {
+                        FileType::Directory => symlink_dir(target, &dest_file)?,
+                        _ => symlink_file(target, &dest_file)?,
+                    }
+                    if preserve_mtime {
+                        File::open(&dest_file)?.set_modified(file.mtime.0)?;
+                    }
+                    if self_preserve_owner {
+                        let path = path_to_c_string(dest_file)?;
+                        c_preserve_owner(&path, entry.file())?;
+                    }
+                }
+                #[cfg(unix)]
                 FileType::Fifo => {
                     let path = path_to_c_string(dest_file)?;
                     let mode = entry.file().mode.into_inner();
-                    mkfifo(&path, mode as _)?;
+                    crate::mkfifo(&path, mode as _)?;
                     c_preserve_mtime(&path, entry.file())?;
-                    c_preserve_owner(&path, entry.file())?;
+                    if self_preserve_owner {
+                        c_preserve_owner(&path, entry.file())?;
+                    }
                 }
-                #[allow(unused_unsafe)]
+                #[cfg(unix)]
                 FileType::CharacterSpecial | FileType::BlockSpecial => {
                     let path = path_to_c_string(dest_file)?;
                     let dev = entry.file().device().ok_or(ErrorKind::InvalidData)?;
-                    let dev = unsafe { makedev(dev.major as _, dev.minor as _) };
+                    let dev = libc::makedev(dev.major as _, dev.minor as _);
                     let mode = entry.file().mode.into_inner();
-                    mknod(&path, mode as _, dev as _)?;
+                    crate::mknod(&path, mode as _, dev as _)?;
                     c_preserve_mtime(&path, entry.file())?;
-                    c_preserve_owner(&path, entry.file())?;
+                    if self_preserve_owner {
+                        c_preserve_owner(&path, entry.file())?;
+                    }
                 }
+                #[cfg(unix)]
                 FileType::Socket => {
+                    use std::os::unix::net::UnixDatagram;
                     UnixDatagram::bind(&dest_file)?;
                     let path = path_to_c_string(dest_file)?;
                     c_preserve_mtime(&path, entry.file())?;
-                    c_preserve_owner(&path, entry.file())?;
+                    if self_preserve_owner {
+                        c_preserve_owner(&path, entry.file())?;
+                    }
+                }
+                #[cfg(not(unix))]
+                FileType::Fifo
+                | FileType::CharacterSpecial
+                | FileType::BlockSpecial
+                | FileType::Socket => {
+                    // Not supported on Windows.
                 }
             }
         }
@@ -394,9 +434,11 @@ impl<R: Read + Seek, X> ExtendedArchive<R, X> {
             std::fs::hard_link(original, &dest_file)?;
         }
         dirs.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+        #[cfg(unix)]
         for (path, mode) in dirs.into_iter() {
-            let perms = Permissions::from_mode(mode.into());
-            set_permissions(&path, perms)?;
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(mode.into());
+            std::fs::set_permissions(&path, perms)?;
         }
         Ok(())
     }

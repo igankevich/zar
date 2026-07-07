@@ -97,6 +97,7 @@ impl From<FileType> for XmlFileType {
     }
 }
 
+#[cfg(unix)]
 impl From<std::fs::FileType> for FileType {
     fn from(other: std::fs::FileType) -> Self {
         use std::os::unix::fs::FileTypeExt;
@@ -112,6 +113,21 @@ impl From<std::fs::FileType> for FileType {
             Self::Fifo
         } else if other.is_socket() {
             Self::Socket
+        } else if other.is_file() {
+            Self::File
+        } else {
+            Default::default()
+        }
+    }
+}
+
+#[cfg(not(unix))]
+impl From<std::fs::FileType> for FileType {
+    fn from(other: std::fs::FileType) -> Self {
+        if other.is_dir() {
+            Self::Directory
+        } else if other.is_symlink() {
+            Self::Symlink
         } else if other.is_file() {
             Self::File
         } else {
