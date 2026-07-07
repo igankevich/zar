@@ -28,7 +28,7 @@ flate2 = "1.1.5"
 libc = "0.2.180"
 md5 = "0.8.0"
 normalize-path = "0.2.1"
-quick-xml = { version = "0.39.0", features = ["serialize"], default-features = false }
+quick-xml = { version = "0.41.0", features = ["serialize"], default-features = false }
 rsa = { version = "0.9.10", features = ["sha2", "sha1"] }
 serde = { version = "1.0.228", features = ["derive"] }
 sha1 = "0.10.6"
@@ -48,7 +48,7 @@ x509-cert = { version = "0.2.5", features = ["builder"] }
 x509-cert = { version = "0.2.5", features = ["builder"] }
 
 [workspace.dependencies]
-zar = { path = ".", version = "0.2.0" }
+zar = { path = ".", version = "0.3.0" }
 
 [profile.dev.package.rsa]
 opt-level = 3
@@ -57,7 +57,7 @@ opt-level = 3
 members = [".", "cli"]
 
 [workspace.package]
-version = "0.2.1"
+version = "0.3.0"
 license = "MIT"
 
 [lints.clippy]
