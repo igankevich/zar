@@ -31,7 +31,7 @@ libc = "0.2.180"
 [dev-dependencies]
 arbitrary = { version = "1.4.2", features = ["derive"] }
 arbtest = "0.3.2"
-random-dir = "0.2.4"
+random-dir = "0.3.1"
 similar-asserts = "1.7.0"
 tempfile = "3.24.0"
 test_bin = "0.5.0"
