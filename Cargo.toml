@@ -39,7 +39,7 @@ xz = { package = "liblzma", version = "0.4.5" }
 [dev-dependencies]
 arbitrary = { version = "1.4.2", features = ["derive"] }
 arbtest = "0.3.2"
-random-dir = "0.2.4"
+random-dir = "0.3.1"
 similar-asserts = "1.7.0"
 tempfile = "3.24.0"
 x509-cert = { version = "0.2.5", features = ["builder"] }
@@ -57,7 +57,7 @@ opt-level = 3
 members = [".", "cli"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 license = "MIT"
 
 [lints.clippy]
