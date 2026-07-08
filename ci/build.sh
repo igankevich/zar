@@ -21,7 +21,7 @@ main() {
     root="$(pwd)"
     case "$OS-$ARCH" in
     Linux-x86_64) build_linux ;;
-    Darwin-aarch64) build_macos ;;
+    Darwin-arm64) build_macos ;;
     *)
         printf "Unsupported OS/architecture combination: %s-%s\n" "$OS" "$ARCH" >&2
         exit 1
@@ -44,7 +44,7 @@ build_linux() {
 }
 
 build_macos() {
-    target="$ARCH"-apple-darwin
+    target=aarch64-apple-darwin
     cargo build \
         --quiet \
         --release \
