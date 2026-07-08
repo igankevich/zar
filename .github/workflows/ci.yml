@@ -2,7 +2,7 @@
 name: CI
 on: [push]
 jobs:
-  ubuntu:
+  ubuntu-tests:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/igankevich/zar-ci:latest
@@ -20,7 +20,7 @@ jobs:
         run: ./ci/lint.sh
       - name: Test
         run: ./ci/test.sh
-  macos:
+  macos-tests:
     runs-on: macos-latest
     env:
       TZ: Europe/Berlin
@@ -31,7 +31,7 @@ jobs:
         uses: actions/checkout@v4.1.4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - run: cargo test --quiet --no-fail-fast --workspace --all-targets -- --nocapture
-  windows:
+  windows-tests:
     runs-on: windows-latest
     env:
       TZ: Europe/Berlin
@@ -42,9 +42,66 @@ jobs:
         uses: actions/checkout@v4.1.4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - run: cargo test --quiet --no-fail-fast --workspace --all-targets -- --nocapture
+  linux-binaries:
+    needs: [ubuntu-tests]
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/igankevich/zar-ci:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1.4
+      - name: Init
+        run: ./ci/init.sh
+      - name: Build static binaries
+        run: ./ci/build.sh
+      - name: Upload archives as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-archives
+          path: zar-${{ env.OS }}-${{ env.ARCH }}-${{ env.VERSION }}.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+  macos-binaries:
+    needs: [macos-tests]
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1.4
+      - name: Init
+        run: ./ci/init.sh
+      - name: Build static binaries
+        run: ./ci/build.sh
+      - name: Upload archives as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-archives
+          path: zar-${{ env.OS }}-${{ env.ARCH }}-${{ env.VERSION }}.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+  windows-binaries:
+    needs: [windows-tests]
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1.4
+      - name: Init
+        run: ./ci/init.sh
+      - name: Build static binaries
+        run: ./ci/build.sh
+      - name: Upload archives as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-archives
+          path: zar-${{ env.OS }}-${{ env.ARCH }}-${{ env.VERSION }}.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
   publish-binaries:
-    needs: [ubuntu, macos]
-    if: github.ref_type == 'tag'
+    needs: [linux-binaries, macos-binaries, windows-binaries]
+    # TODO
+    # if: github.ref_type == 'tag'
     permissions:
       contents: write
       packages: read
@@ -56,8 +113,18 @@ jobs:
         uses: actions/checkout@v4.1.4
       - name: Init
         run: ./ci/init.sh
-      - name: Build static binaries
-        run: ./ci/build.sh
+      - name: Download Linux binaries
+        uses: actions/download-artifact@v5
+        with:
+          name: linux-archives
+      - name: Download MacOS binaries
+        uses: actions/download-artifact@v5
+        with:
+          name: macos-archives
+      - name: Download Windows binaries
+        uses: actions/download-artifact@v5
+        with:
+          name: windows-archives
       - name: Create release
         uses: actions/create-release@v1
         id: create_release
@@ -66,15 +133,32 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           release_name: Release ${{ github.ref_name }}
-          draft: false
+          draft: true
           prerelease: false
-      - name: Upload binaries
-        id: upload-release-asset
+      - name: Upload Linux binaries
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./zar-${{ github.ref_name }}.tar.gz
-          asset_name: zar-${{ github.ref_name }}.tar.gz
+          asset_path: zar-Linux-x86_64-${{ env.VERSION }}.tar.gz
+          asset_name: zar-Linux-x86_64-${{ env.VERSION }}.tar.gz
+          asset_content_type: application/gzip
+      - name: Upload MacOS binaries
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: zar-Darwin-aarch64-${{ env.VERSION }}.tar.gz
+          asset_name: zar-Darwin-aarch64-${{ env.VERSION }}.tar.gz
+          asset_content_type: application/gzip
+      - name: Upload Windows binaries
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: zar-Windows-x86_64-${{ env.VERSION }}.tar.gz
+          asset_name: zar-Windows-x86_64-${{ env.VERSION }}.tar.gz
           asset_content_type: application/gzip
