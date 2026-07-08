@@ -6,7 +6,7 @@ if test -z "$version"; then
     exit 1
 fi
 {
-    os="$(uname -m)"
+    os="$(uname -s)"
     case "$os" in
     MINGW64*) os=Windows ;;
     *) ;;
