@@ -6,7 +6,12 @@ if test -z "$version"; then
     exit 1
 fi
 {
+    os="$(uname -m)"
+    case "$os" in
+    MINGW64*) os=Windows ;;
+    *) ;;
+    esac
     printf "VERSION=%s\n" "$version"
-    printf "OS=%s\n" "$(uname -s)"
+    printf "OS=%s\n" "$os"
     printf "ARCH=%s\n" "$(uname -m)"
 } >>"$GITHUB_ENV"

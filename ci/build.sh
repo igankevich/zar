@@ -22,7 +22,7 @@ main() {
     case "$OS-$ARCH" in
     Linux-x86_64) build_linux ;;
     Darwin-arm64) build_macos ;;
-    MINGW64*-x86_64) build_windows ;;
+    Windows-x86_64) build_windows ;;
     *)
         printf "Unsupported OS/architecture combination: %s-%s\n" "$OS" "$ARCH" >&2
         exit 1

@@ -111,8 +111,6 @@ jobs:
       contents: write
       packages: read
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/igankevich/zar-ci:latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4.1.4
@@ -130,6 +128,8 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: windows-archives
+      - name: List files
+        run: ls -l *.tar.gz
       - name: Create release
         uses: actions/create-release@v1
         id: create_release
@@ -156,8 +156,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: zar-Darwin-aarch64-${{ env.VERSION }}.tar.gz
-          asset_name: zar-Darwin-aarch64-${{ env.VERSION }}.tar.gz
+          asset_path: zar-Darwin-arm64-${{ env.VERSION }}.tar.gz
+          asset_name: zar-Darwin-arm64-${{ env.VERSION }}.tar.gz
           asset_content_type: application/gzip
       - name: Upload Windows binaries
         uses: actions/upload-release-asset@v1
