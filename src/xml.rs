@@ -216,7 +216,6 @@ impl<X> File<X> {
         offset: u64,
         extra: Option<X>,
     ) -> Result<(Self, Vec<u8>), Error> {
-        use std::os::unix::fs::MetadataExt;
         let path = path.as_ref();
         let prefix = prefix.as_ref();
         let metadata = symlink_metadata(path)?;
@@ -265,7 +264,23 @@ impl<X> File<X> {
         } else {
             (None, Vec::new())
         };
-        let file = Self {
+        let file = Self::do_new(id, name, kind, data, link, extra, metadata);
+        Ok((file, archived))
+    }
+
+    #[cfg(unix)]
+    #[inline]
+    fn do_new(
+        id: u64,
+        name: PathBuf,
+        kind: FileType,
+        data: Option<FileData>,
+        link: Option<Link>,
+        extra: Option<X>,
+        metadata: std::fs::Metadata,
+    ) -> Self {
+        use std::os::unix::fs::MetadataExt;
+        Self {
             id,
             name,
             kind,
@@ -292,8 +307,61 @@ impl<X> File<X> {
                 None
             },
             extra,
-        };
-        Ok((file, archived))
+        }
+    }
+
+    #[cfg(windows)]
+    #[inline]
+    fn do_new(
+        id: u64,
+        name: PathBuf,
+        kind: FileType,
+        data: Option<FileData>,
+        link: Option<Link>,
+        extra: Option<X>,
+        metadata: std::fs::Metadata,
+    ) -> Self {
+        use std::os::windows::fs::MetadataExt;
+        // 100 nanoseconds.
+        const TIMER_RESOLUTION_NS: u64 = 100;
+        // The number of seconds between Windows epoch and UNIX epoch.
+        const EPOCH_OFFSET_SEC: u64 = 11_644_473_600;
+        fn windows_to_unix(t_windows: u64) -> Option<Timestamp> {
+            let t_unix_ns = t_windows
+                .checked_mul(TIMER_RESOLUTION_NS)?
+                .checked_sub(EPOCH_OFFSET_SEC * 1_000_000_000)?;
+            (t_unix_ns / 1_000_000_000).try_into().ok()
+        }
+        fn unix_mode(perms: u32, file_type: u32) -> u32 {
+            (file_type << 12) | perms
+        }
+        Self {
+            id,
+            name,
+            kind,
+            inode: id,
+            deviceno: 0,
+            mode: if metadata.is_dir() {
+                unix_mode(0o755, 0o4)
+            } else if metadata.is_symlink() {
+                unix_mode(0o777, 0o12)
+            } else {
+                unix_mode(0o644, 0o10)
+            }
+            .into(),
+            uid: 501,
+            gid: 20,
+            user: None,
+            group: None,
+            atime: windows_to_unix(metadata.last_access_time()).unwrap_or_default(),
+            mtime: windows_to_unix(metadata.last_write_time()).unwrap_or_default(),
+            ctime: windows_to_unix(metadata.creation_time()).unwrap_or_default(),
+            children: Default::default(),
+            data,
+            link,
+            device: None,
+            extra,
+        }
     }
 
     /// Flatten the file tree replacing file names with their full archive paths.

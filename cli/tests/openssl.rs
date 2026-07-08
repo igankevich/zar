@@ -12,6 +12,7 @@ use tempfile::TempDir;
     target_os = "macos",
     ignore = "`openssl` on MacOS doesn't support `-traditional`"
 )]
+#[cfg_attr(windows, ignore = "No `openssl` on Windows")]
 fn sign_verify() {
     let workdir = TempDir::new().unwrap();
     let private_key_pem = workdir.path().join("private-key.pem");

@@ -1,19 +1,9 @@
-use std::ffi::CStr;
 use std::ffi::CString;
 use std::io::Error;
-use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
-use std::time::SystemTime;
 
-use libc::dev_t;
-use libc::gid_t;
-use libc::mode_t;
-use libc::uid_t;
-use libc::AT_FDCWD;
-use libc::AT_SYMLINK_NOFOLLOW;
-use libc::UTIME_OMIT;
-
-pub fn mkfifo(path: &CStr, mode: mode_t) -> Result<(), Error> {
+#[cfg(unix)]
+pub fn mkfifo(path: &std::ffi::CStr, mode: libc::mode_t) -> Result<(), Error> {
     let ret = unsafe { libc::mkfifo(path.as_ptr(), mode) };
     if ret < 0 {
         return Err(Error::last_os_error());
@@ -21,7 +11,8 @@ pub fn mkfifo(path: &CStr, mode: mode_t) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn mknod(path: &CStr, mode: mode_t, dev: dev_t) -> Result<(), Error> {
+#[cfg(unix)]
+pub fn mknod(path: &std::ffi::CStr, mode: libc::mode_t, dev: libc::dev_t) -> Result<(), Error> {
     let ret = unsafe { libc::mknod(path.as_ptr(), mode, dev) };
     if ret < 0 {
         return Err(Error::last_os_error());
@@ -29,8 +20,15 @@ pub fn mknod(path: &CStr, mode: mode_t, dev: dev_t) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn set_file_modified_time(path: &CStr, t: SystemTime) -> Result<(), Error> {
-    let Ok(d) = t.duration_since(SystemTime::UNIX_EPOCH) else {
+#[cfg(unix)]
+pub fn set_file_modified_time(
+    path: &std::ffi::CStr,
+    t: std::time::SystemTime,
+) -> Result<(), Error> {
+    use libc::AT_FDCWD;
+    use libc::AT_SYMLINK_NOFOLLOW;
+    use libc::UTIME_OMIT;
+    let Ok(d) = t.duration_since(std::time::SystemTime::UNIX_EPOCH) else {
         return Ok(());
     };
     let times = [
@@ -51,7 +49,8 @@ pub fn set_file_modified_time(path: &CStr, t: SystemTime) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn lchown(path: &CStr, uid: uid_t, gid: gid_t) -> Result<(), Error> {
+#[cfg(unix)]
+pub fn lchown(path: &std::ffi::CStr, uid: libc::uid_t, gid: libc::gid_t) -> Result<(), Error> {
     let ret = unsafe { libc::lchown(path.as_ptr(), uid, gid) };
     if ret < 0 {
         return Err(Error::last_os_error());
@@ -60,5 +59,5 @@ pub fn lchown(path: &CStr, uid: uid_t, gid: gid_t) -> Result<(), Error> {
 }
 
 pub fn path_to_c_string(path: PathBuf) -> Result<CString, Error> {
-    Ok(CString::new(path.into_os_string().into_vec())?)
+    Ok(CString::new(path.into_os_string().into_encoded_bytes())?)
 }
