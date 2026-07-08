@@ -70,6 +70,8 @@ jobs:
         uses: actions/checkout@v4.1.4
       - name: Init
         run: ./ci/init.sh
+      - name: Dependencies
+        run: ./ci/brew.sh
       - name: Build binaries
         run: ./ci/build.sh
       - name: Upload archives as artifacts

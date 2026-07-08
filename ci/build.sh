@@ -22,6 +22,7 @@ main() {
     case "$OS-$ARCH" in
     Linux-x86_64) build_linux ;;
     Darwin-arm64) build_macos ;;
+    MINGW64*-x86_64) build_windows ;;
     *)
         printf "Unsupported OS/architecture combination: %s-%s\n" "$OS" "$ARCH" >&2
         exit 1
@@ -53,6 +54,21 @@ build_macos() {
     mkdir "$workdir"/macos
     cp -v target/"$target"/release/zar "$workdir"/macos
     cd "$workdir"/macos
+    create_tar_archive
+}
+
+build_windows() {
+    target="$ARCH"-pc-windows-msvc
+    env RUSTFLAGS="-C target-feature=+crt-static" \
+        cargo build \
+        --quiet \
+        --release \
+        --target "$target" \
+        --package zar-cli
+    rm -rf --one-file-system release
+    mkdir "$workdir"/linux
+    cp -v target/"$target"/release/zar "$workdir"/linux
+    cd "$workdir"/linux
     create_tar_archive
 }
 
