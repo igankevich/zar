@@ -303,10 +303,15 @@ fn can_chown() -> bool {
     has_cap(None, CapSet::Permitted, Capability::CAP_CHOWN).unwrap_or(false)
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), unix))]
 fn can_chown() -> bool {
     let uid = unsafe { libc::getuid() };
     uid == 0
+}
+
+#[cfg(not(unix))]
+fn can_chown() -> bool {
+    false
 }
 
 fn read_cert_chain(path: &Path) -> Result<Vec<Certificate>, Error> {
