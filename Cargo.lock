@@ -756,20 +756,6 @@ dependencies = [
 
 [[package]]
 name = "random-dir"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f70b50f8c8f0fc6e81733e135a87e73d54c8efb2b3aae769e1f53354f36087c8"
-dependencies = [
- "arbitrary",
- "arbtest",
- "libc",
- "normalize-path",
- "tempfile",
- "walkdir",
-]
-
-[[package]]
-name = "random-dir"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5dae31300414e307a592e5da7874cee7059998e2854a11dfea25a3fb00446251"
@@ -1296,7 +1282,7 @@ dependencies = [
  "md5",
  "normalize-path",
  "quick-xml",
- "random-dir 0.3.1",
+ "random-dir",
  "rsa",
  "serde",
  "sha1",
@@ -1315,7 +1301,7 @@ dependencies = [
  "caps",
  "clap",
  "libc",
- "random-dir 0.2.4",
+ "random-dir",
  "similar-asserts",
  "tempfile",
  "test_bin",
