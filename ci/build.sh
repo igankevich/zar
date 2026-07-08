@@ -63,7 +63,7 @@ create_tar_archive() {
         --numeric-owner \
         --owner=0 \
         --group=0 \
-        --compress \
+        --gzip \
         --verbose \
         --file="$root"/zar-"$OS"-"$ARCH"-"$VERSION".tar.gz \
         --null \
